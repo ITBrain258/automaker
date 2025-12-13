@@ -90,14 +90,22 @@ export function BoardBackgroundModal({
     if (currentProject && backgroundSettings.imagePath) {
       const serverUrl =
         process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3008";
+      // Add cache-busting query parameter to force browser to reload image
+      const cacheBuster = backgroundSettings.imageVersion
+        ? `&v=${backgroundSettings.imageVersion}`
+        : `&v=${Date.now()}`;
       const imagePath = `${serverUrl}/api/fs/image?path=${encodeURIComponent(
         backgroundSettings.imagePath
-      )}&projectPath=${encodeURIComponent(currentProject.path)}`;
+      )}&projectPath=${encodeURIComponent(currentProject.path)}${cacheBuster}`;
       setPreviewImage(imagePath);
     } else {
       setPreviewImage(null);
     }
-  }, [currentProject, backgroundSettings.imagePath]);
+  }, [
+    currentProject,
+    backgroundSettings.imagePath,
+    backgroundSettings.imageVersion,
+  ]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
