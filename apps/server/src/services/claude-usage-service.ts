@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import * as os from "os";
+import * as pty from "node-pty";
 import { ClaudeUsage } from "../routes/claude/types.js";
 
 /**
@@ -8,18 +10,22 @@ import { ClaudeUsage } from "../routes/claude/types.js";
  * This approach doesn't require any API keys - it relies on the user
  * having already authenticated via `claude login`.
  *
- * Based on ClaudeBar's implementation approach.
+ * Platform-specific implementations:
+ * - macOS: Uses 'expect' command for PTY
+ * - Windows: Uses node-pty for PTY
  */
 export class ClaudeUsageService {
   private claudeBinary = "claude";
   private timeout = 30000; // 30 second timeout
+  private isWindows = os.platform() === "win32";
 
   /**
    * Check if Claude CLI is available on the system
    */
   async isAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
-      const proc = spawn("which", [this.claudeBinary]);
+      const checkCmd = this.isWindows ? "where" : "which";
+      const proc = spawn(checkCmd, [this.claudeBinary]);
       proc.on("close", (code) => {
         resolve(code === 0);
       });
@@ -39,9 +45,19 @@ export class ClaudeUsageService {
 
   /**
    * Execute the claude /usage command and return the output
-   * Uses 'expect' to provide a pseudo-TTY since claude requires one
+   * Uses platform-specific PTY implementation
    */
   private executeClaudeUsageCommand(): Promise<string> {
+    if (this.isWindows) {
+      return this.executeClaudeUsageCommandWindows();
+    }
+    return this.executeClaudeUsageCommandMac();
+  }
+
+  /**
+   * macOS implementation using 'expect' command
+   */
+  private executeClaudeUsageCommandMac(): Promise<string> {
     return new Promise((resolve, reject) => {
       let stdout = "";
       let stderr = "";
@@ -127,6 +143,82 @@ export class ClaudeUsageService {
   }
 
   /**
+   * Windows implementation using node-pty
+   */
+  private executeClaudeUsageCommandWindows(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let output = "";
+      let settled = false;
+      let hasSeenUsageData = false;
+
+      const workingDirectory = process.env.USERPROFILE || os.homedir() || "C:\\";
+
+      const ptyProcess = pty.spawn("cmd.exe", ["/c", "claude", "/usage"], {
+        name: "xterm-256color",
+        cols: 120,
+        rows: 30,
+        cwd: workingDirectory,
+        env: {
+          ...process.env,
+          TERM: "xterm-256color",
+        } as Record<string, string>,
+      });
+
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          ptyProcess.kill();
+          reject(new Error("Command timed out"));
+        }
+      }, this.timeout);
+
+      ptyProcess.onData((data) => {
+        output += data;
+
+        // Check if we've seen the usage data (look for "Current session")
+        if (!hasSeenUsageData && output.includes("Current session")) {
+          hasSeenUsageData = true;
+          // Wait for full output, then send escape to exit
+          setTimeout(() => {
+            if (!settled) {
+              ptyProcess.write("\x1b"); // Send escape key
+            }
+          }, 2000);
+        }
+
+        // Fallback: if we see "Esc to cancel" but haven't seen usage data yet
+        if (!hasSeenUsageData && output.includes("Esc to cancel")) {
+          setTimeout(() => {
+            if (!settled) {
+              ptyProcess.write("\x1b"); // Send escape key
+            }
+          }, 3000);
+        }
+      });
+
+      ptyProcess.onExit(({ exitCode }) => {
+        clearTimeout(timeoutId);
+        if (settled) return;
+        settled = true;
+
+        // Check for authentication errors in output
+        if (output.includes("token_expired") || output.includes("authentication_error")) {
+          reject(new Error("Authentication required - please run 'claude login'"));
+          return;
+        }
+
+        if (output.trim()) {
+          resolve(output);
+        } else if (exitCode !== 0) {
+          reject(new Error(`Command exited with code ${exitCode}`));
+        } else {
+          reject(new Error("No output from claude command"));
+        }
+      });
+    });
+  }
+
+  /**
    * Strip ANSI escape codes from text
    */
   private stripAnsiCodes(text: string): string {
@@ -165,12 +257,12 @@ export class ClaudeUsageService {
     const weeklyData = this.parseSection(lines, "Current week (all models)", "weekly");
 
     // Parse Sonnet/Opus usage - try different labels
-    let opusData = this.parseSection(lines, "Current week (Sonnet only)", "opus");
-    if (opusData.percentage === 0) {
-      opusData = this.parseSection(lines, "Current week (Sonnet)", "opus");
+    let sonnetData = this.parseSection(lines, "Current week (Sonnet only)", "sonnet");
+    if (sonnetData.percentage === 0) {
+      sonnetData = this.parseSection(lines, "Current week (Sonnet)", "sonnet");
     }
-    if (opusData.percentage === 0) {
-      opusData = this.parseSection(lines, "Current week (Opus)", "opus");
+    if (sonnetData.percentage === 0) {
+      sonnetData = this.parseSection(lines, "Current week (Opus)", "sonnet");
     }
 
     return {
@@ -186,9 +278,9 @@ export class ClaudeUsageService {
       weeklyResetTime: weeklyData.resetTime,
       weeklyResetText: weeklyData.resetText,
 
-      opusWeeklyTokensUsed: 0, // Not available from CLI
-      opusWeeklyPercentage: opusData.percentage,
-      opusResetText: opusData.resetText,
+      sonnetWeeklyTokensUsed: 0, // Not available from CLI
+      sonnetWeeklyPercentage: sonnetData.percentage,
+      sonnetResetText: sonnetData.resetText,
 
       costUsed: null, // Not available from CLI
       costLimit: null,
