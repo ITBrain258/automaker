@@ -670,7 +670,7 @@ immediate preview.
 
 **Important:** If you discover a security vulnerability, please do NOT open a public issue. Instead:
 
-1. Write to [@webdevcody](https://discord.gg/jjem7aEDKU) on Discord
+1. Join our [Discord server](https://discord.gg/jjem7aEDKU) and send a direct message to the user `@webdevcody`
 2. Include detailed steps to reproduce
 3. Allow time for us to address the issue before public disclosure
 
