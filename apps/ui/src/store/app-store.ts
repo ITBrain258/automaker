@@ -14,6 +14,7 @@ import type {
   AIProfile,
   CursorModelId,
   CodexModelId,
+  OpencodeModelId,
   PhaseModelConfig,
   PhaseModelKey,
   PhaseModelEntry,
@@ -23,7 +24,13 @@ import type {
   PipelineStep,
   PromptCustomization,
 } from '@automaker/types';
-import { getAllCursorModelIds, getAllCodexModelIds, DEFAULT_PHASE_MODELS } from '@automaker/types';
+import {
+  getAllCursorModelIds,
+  getAllCodexModelIds,
+  getAllOpencodeModelIds,
+  DEFAULT_PHASE_MODELS,
+  DEFAULT_OPENCODE_MODEL,
+} from '@automaker/types';
 
 const logger = createLogger('AppStore');
 
@@ -567,6 +574,10 @@ export interface AppState {
   codexEnableWebSearch: boolean; // Enable web search capability
   codexEnableImages: boolean; // Enable image processing
 
+  // OpenCode CLI Settings (global)
+  enabledOpencodeModels: OpencodeModelId[]; // Which OpenCode models are available in feature modal
+  opencodeDefaultModel: OpencodeModelId; // Default OpenCode model selection
+
   // Claude Agent SDK Settings
   autoLoadClaudeMd: boolean; // Auto-load CLAUDE.md files using SDK's settingSources option
   skipSandboxWarning: boolean; // Skip the sandbox environment warning dialog on startup
@@ -938,6 +949,11 @@ export interface AppActions {
   setCodexEnableWebSearch: (enabled: boolean) => Promise<void>;
   setCodexEnableImages: (enabled: boolean) => Promise<void>;
 
+  // OpenCode CLI Settings actions
+  setEnabledOpencodeModels: (models: OpencodeModelId[]) => void;
+  setOpencodeDefaultModel: (model: OpencodeModelId) => void;
+  toggleOpencodeModel: (model: OpencodeModelId, enabled: boolean) => void;
+
   // Claude Agent SDK Settings actions
   setAutoLoadClaudeMd: (enabled: boolean) => Promise<void>;
   setSkipSandboxWarning: (skip: boolean) => Promise<void>;
@@ -1175,6 +1191,8 @@ const initialState: AppState = {
   codexApprovalPolicy: 'on-request', // Default to on-request for balanced safety
   codexEnableWebSearch: false, // Default to disabled
   codexEnableImages: false, // Default to disabled
+  enabledOpencodeModels: getAllOpencodeModelIds(), // All OpenCode models enabled by default
+  opencodeDefaultModel: DEFAULT_OPENCODE_MODEL, // Default to Claude Sonnet 4.5
   autoLoadClaudeMd: false, // Default to disabled (user must opt-in)
   skipSandboxWarning: false, // Default to disabled (show sandbox warning dialog)
   mcpServers: [], // No MCP servers configured by default
@@ -1907,6 +1925,16 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
     await syncSettingsToServer();
   },
+
+  // OpenCode CLI Settings actions
+  setEnabledOpencodeModels: (models) => set({ enabledOpencodeModels: models }),
+  setOpencodeDefaultModel: (model) => set({ opencodeDefaultModel: model }),
+  toggleOpencodeModel: (model, enabled) =>
+    set((state) => ({
+      enabledOpencodeModels: enabled
+        ? [...state.enabledOpencodeModels, model]
+        : state.enabledOpencodeModels.filter((m) => m !== model),
+    })),
 
   // Claude Agent SDK Settings actions
   setAutoLoadClaudeMd: async (enabled) => {

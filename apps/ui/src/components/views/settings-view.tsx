@@ -18,7 +18,12 @@ import { FeatureDefaultsSection } from './settings-view/feature-defaults/feature
 import { DangerZoneSection } from './settings-view/danger-zone/danger-zone-section';
 import { AccountSection } from './settings-view/account';
 import { SecuritySection } from './settings-view/security';
-import { ClaudeSettingsTab, CursorSettingsTab, CodexSettingsTab } from './settings-view/providers';
+import {
+  ClaudeSettingsTab,
+  CursorSettingsTab,
+  CodexSettingsTab,
+  OpencodeSettingsTab,
+} from './settings-view/providers';
 import { MCPServersSection } from './settings-view/mcp-servers';
 import { PromptCustomizationSection } from './settings-view/prompts';
 import type { Project as SettingsProject, Theme } from './settings-view/shared/types';
@@ -109,6 +114,8 @@ export function SettingsView() {
         return <CursorSettingsTab />;
       case 'codex-provider':
         return <CodexSettingsTab />;
+      case 'opencode-provider':
+        return <OpencodeSettingsTab />;
       case 'providers':
       case 'claude': // Backwards compatibility - redirect to claude-provider
         return <ClaudeSettingsTab />;

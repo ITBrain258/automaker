@@ -9,6 +9,8 @@
 import type { ModelAlias, AgentModel, CodexModelId } from './model.js';
 import type { CursorModelId } from './cursor-models.js';
 import { CURSOR_MODEL_MAP, getAllCursorModelIds } from './cursor-models.js';
+import type { OpencodeModelId } from './opencode-models.js';
+import { getAllOpencodeModelIds, DEFAULT_OPENCODE_MODEL } from './opencode-models.js';
 import type { PromptCustomization } from './prompts.js';
 import type { CodexSandboxMode, CodexApprovalPolicy } from './codex.js';
 import type { ReasoningEffort } from './provider.js';
@@ -97,7 +99,7 @@ export function getThinkingTokenBudget(level: ThinkingLevel | undefined): number
 }
 
 /** ModelProvider - AI model provider for credentials and API key management */
-export type ModelProvider = 'claude' | 'cursor' | 'codex';
+export type ModelProvider = 'claude' | 'cursor' | 'codex' | 'opencode';
 
 const DEFAULT_CODEX_AUTO_LOAD_AGENTS = false;
 const DEFAULT_CODEX_SANDBOX_MODE: CodexSandboxMode = 'workspace-write';
@@ -262,6 +264,10 @@ export interface AIProfile {
   // Codex-specific settings
   /** Which Codex/GPT model to use - only for Codex provider */
   codexModel?: CodexModelId;
+
+  // OpenCode-specific settings
+  /** Which OpenCode model to use - only for OpenCode provider */
+  opencodeModel?: OpencodeModelId;
 }
 
 /**
@@ -285,6 +291,11 @@ export function profileHasThinking(profile: AIProfile): boolean {
     return model.startsWith('o');
   }
 
+  if (profile.provider === 'opencode') {
+    // OpenCode models don't expose thinking configuration
+    return false;
+  }
+
   return false;
 }
 
@@ -298,6 +309,10 @@ export function getProfileModelString(profile: AIProfile): string {
 
   if (profile.provider === 'codex') {
     return `codex:${profile.codexModel || 'codex-gpt-5.2'}`;
+  }
+
+  if (profile.provider === 'opencode') {
+    return `opencode:${profile.opencodeModel || DEFAULT_OPENCODE_MODEL}`;
   }
 
   // Claude
@@ -477,6 +492,12 @@ export interface GlobalSettings {
   enabledCursorModels: CursorModelId[];
   /** Default Cursor model selection when switching to Cursor CLI */
   cursorDefaultModel: CursorModelId;
+
+  // OpenCode CLI Settings (global)
+  /** Which OpenCode models are available in feature modal (empty = all) */
+  enabledOpencodeModels?: OpencodeModelId[];
+  /** Default OpenCode model selection when switching to OpenCode CLI */
+  opencodeDefaultModel?: OpencodeModelId;
 
   // Input Configuration
   /** User's keyboard shortcut bindings */
@@ -768,6 +789,8 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   validationModel: 'opus',
   enabledCursorModels: getAllCursorModelIds(),
   cursorDefaultModel: 'auto',
+  enabledOpencodeModels: getAllOpencodeModelIds(),
+  opencodeDefaultModel: DEFAULT_OPENCODE_MODEL,
   keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS,
   aiProfiles: [],
   projects: [],

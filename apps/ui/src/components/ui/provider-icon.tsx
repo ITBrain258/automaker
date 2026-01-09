@@ -1,4 +1,5 @@
 import type { ComponentType, SVGProps } from 'react';
+import { Cpu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentModel, ModelProvider } from '@automaker/types';
 import { getProviderFromModel } from '@/lib/utils';
@@ -96,6 +97,10 @@ export function GrokIcon(props: Omit<ProviderIconProps, 'provider'>) {
   return <ProviderIcon provider={PROVIDER_ICON_KEYS.grok} {...props} />;
 }
 
+export function OpenCodeIcon({ className, ...props }: { className?: string }) {
+  return <Cpu className={cn('inline-block', className)} {...props} />;
+}
+
 export const PROVIDER_ICON_COMPONENTS: Record<
   ModelProvider,
   ComponentType<{ className?: string }>
@@ -103,6 +108,7 @@ export const PROVIDER_ICON_COMPONENTS: Record<
   claude: AnthropicIcon,
   cursor: CursorIcon, // Default for Cursor provider (will be overridden by getProviderIconForModel)
   codex: OpenAIIcon,
+  opencode: OpenCodeIcon,
 };
 
 /**

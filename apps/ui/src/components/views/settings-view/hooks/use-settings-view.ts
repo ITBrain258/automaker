@@ -7,6 +7,7 @@ export type SettingsViewId =
   | 'claude-provider'
   | 'cursor-provider'
   | 'codex-provider'
+  | 'opencode-provider'
   | 'mcp-servers'
   | 'prompts'
   | 'model-defaults'

@@ -8,10 +8,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Cpu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CodexModelId } from '@automaker/types';
-import { CODEX_MODEL_MAP } from '@automaker/types';
 import { OpenAIIcon } from '@/components/ui/provider-icon';
 
 interface CodexModelConfigurationProps {
@@ -158,17 +156,6 @@ export function CodexModelConfiguration({
       </div>
     </div>
   );
-}
-
-function getModelDisplayName(modelId: string): string {
-  const displayNames: Record<string, string> = {
-    'codex-gpt-5.2-codex': 'GPT-5.2-Codex',
-    'codex-gpt-5.1-codex-max': 'GPT-5.1-Codex-Max',
-    'codex-gpt-5.1-codex-mini': 'GPT-5.1-Codex-Mini',
-    'codex-gpt-5.2': 'GPT-5.2',
-    'codex-gpt-5.1': 'GPT-5.1',
-  };
-  return displayNames[modelId] || modelId;
 }
 
 function supportsReasoningEffort(modelId: string): boolean {

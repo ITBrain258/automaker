@@ -175,12 +175,16 @@ export type {
 export * from './cursor-models.js';
 export * from './cursor-cli.js';
 
+// OpenCode types
+export * from './opencode-models.js';
+
 // Provider utilities
 export {
   PROVIDER_PREFIXES,
   isCursorModel,
   isClaudeModel,
   isCodexModel,
+  isOpencodeModel,
   getModelProvider,
   stripProviderPrefix,
   addProviderPrefix,

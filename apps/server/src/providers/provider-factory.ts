@@ -7,7 +7,7 @@
 
 import { BaseProvider } from './base-provider.js';
 import type { InstallationStatus, ModelDefinition } from './types.js';
-import { isCursorModel, isCodexModel, type ModelProvider } from '@automaker/types';
+import { isCursorModel, isCodexModel, isOpencodeModel, type ModelProvider } from '@automaker/types';
 
 /**
  * Provider registration entry
@@ -201,6 +201,7 @@ export class ProviderFactory {
 import { ClaudeProvider } from './claude-provider.js';
 import { CursorProvider } from './cursor-provider.js';
 import { CodexProvider } from './codex-provider.js';
+import { OpencodeProvider } from './opencode-provider.js';
 
 // Register Claude provider
 registerProvider('claude', {
@@ -227,4 +228,11 @@ registerProvider('codex', {
   aliases: ['openai'],
   canHandleModel: (model: string) => isCodexModel(model),
   priority: 5, // Medium priority - check after Cursor but before Claude
+});
+
+// Register OpenCode provider
+registerProvider('opencode', {
+  factory: () => new OpencodeProvider(),
+  canHandleModel: (model: string) => isOpencodeModel(model),
+  priority: 3, // Between codex (5) and claude (0)
 });

@@ -48,6 +48,20 @@ export interface CodexCliStatus {
   error?: string;
 }
 
+// OpenCode CLI Status
+export interface OpencodeCliStatus {
+  installed: boolean;
+  version?: string | null;
+  path?: string | null;
+  auth?: {
+    authenticated: boolean;
+    method: string;
+  };
+  installCommand?: string;
+  loginCommand?: string;
+  error?: string;
+}
+
 // Codex Auth Method
 export type CodexAuthMethod =
   | 'api_key_env' // OPENAI_API_KEY environment variable
@@ -99,10 +113,12 @@ export interface InstallProgress {
 export type SetupStep =
   | 'welcome'
   | 'theme'
+  | 'providers'
   | 'claude_detect'
   | 'claude_auth'
   | 'cursor'
   | 'codex'
+  | 'opencode'
   | 'github'
   | 'complete';
 
@@ -116,6 +132,7 @@ export interface SetupState {
   claudeCliStatus: CliStatus | null;
   claudeAuthStatus: ClaudeAuthStatus | null;
   claudeInstallProgress: InstallProgress;
+  claudeIsVerifying: boolean;
 
   // GitHub CLI state
   ghCliStatus: GhCliStatus | null;
@@ -127,6 +144,9 @@ export interface SetupState {
   codexCliStatus: CliStatus | null;
   codexAuthStatus: CodexAuthStatus | null;
   codexInstallProgress: InstallProgress;
+
+  // OpenCode CLI state
+  opencodeCliStatus: OpencodeCliStatus | null;
 
   // Setup preferences
   skipClaudeSetup: boolean;
@@ -145,6 +165,7 @@ export interface SetupActions {
   setClaudeAuthStatus: (status: ClaudeAuthStatus | null) => void;
   setClaudeInstallProgress: (progress: Partial<InstallProgress>) => void;
   resetClaudeInstallProgress: () => void;
+  setClaudeIsVerifying: (isVerifying: boolean) => void;
 
   // GitHub CLI
   setGhCliStatus: (status: GhCliStatus | null) => void;
@@ -157,6 +178,9 @@ export interface SetupActions {
   setCodexAuthStatus: (status: CodexAuthStatus | null) => void;
   setCodexInstallProgress: (progress: Partial<InstallProgress>) => void;
   resetCodexInstallProgress: () => void;
+
+  // OpenCode CLI
+  setOpencodeCliStatus: (status: OpencodeCliStatus | null) => void;
 
   // Preferences
   setSkipClaudeSetup: (skip: boolean) => void;
@@ -180,6 +204,7 @@ const initialState: SetupState = {
   claudeCliStatus: null,
   claudeAuthStatus: null,
   claudeInstallProgress: { ...initialInstallProgress },
+  claudeIsVerifying: false,
 
   ghCliStatus: null,
   cursorCliStatus: null,
@@ -187,6 +212,8 @@ const initialState: SetupState = {
   codexCliStatus: null,
   codexAuthStatus: null,
   codexInstallProgress: { ...initialInstallProgress },
+
+  opencodeCliStatus: null,
 
   skipClaudeSetup: shouldSkipSetup,
 };
@@ -231,6 +258,8 @@ export const useSetupStore = create<SetupState & SetupActions>()((set, get) => (
       claudeInstallProgress: { ...initialInstallProgress },
     }),
 
+  setClaudeIsVerifying: (isVerifying) => set({ claudeIsVerifying: isVerifying }),
+
   // GitHub CLI
   setGhCliStatus: (status) => set({ ghCliStatus: status }),
 
@@ -254,6 +283,9 @@ export const useSetupStore = create<SetupState & SetupActions>()((set, get) => (
     set({
       codexInstallProgress: { ...initialInstallProgress },
     }),
+
+  // OpenCode CLI
+  setOpencodeCliStatus: (status) => set({ opencodeCliStatus: status }),
 
   // Preferences
   setSkipClaudeSetup: (skip) => set({ skipClaudeSetup: skip }),

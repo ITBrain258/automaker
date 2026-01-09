@@ -1,8 +1,12 @@
 import type { ModelAlias } from '@/store/app-store';
 import type { ModelProvider, ThinkingLevel, ReasoningEffort } from '@automaker/types';
-import { CURSOR_MODEL_MAP, CODEX_MODEL_MAP } from '@automaker/types';
+import {
+  CURSOR_MODEL_MAP,
+  CODEX_MODEL_MAP,
+  OPENCODE_MODELS as OPENCODE_MODEL_CONFIGS,
+} from '@automaker/types';
 import { Brain, Zap, Scale, Cpu, Rocket, Sparkles } from 'lucide-react';
-import { AnthropicIcon, CursorIcon, OpenAIIcon } from '@/components/ui/provider-icon';
+import { AnthropicIcon, CursorIcon, OpenAIIcon, OpenCodeIcon } from '@/components/ui/provider-icon';
 
 export type ModelOption = {
   id: string; // Claude models use ModelAlias, Cursor models use "cursor-{id}"
@@ -99,9 +103,25 @@ export const CODEX_MODELS: ModelOption[] = [
 ];
 
 /**
- * All available models (Claude + Cursor + Codex)
+ * OpenCode models derived from OPENCODE_MODEL_CONFIGS
  */
-export const ALL_MODELS: ModelOption[] = [...CLAUDE_MODELS, ...CURSOR_MODELS, ...CODEX_MODELS];
+export const OPENCODE_MODELS: ModelOption[] = OPENCODE_MODEL_CONFIGS.map((config) => ({
+  id: config.id,
+  label: config.label,
+  description: config.description,
+  badge: config.tier === 'free' ? 'Free' : config.tier === 'premium' ? 'Premium' : undefined,
+  provider: 'opencode' as ModelProvider,
+}));
+
+/**
+ * All available models (Claude + Cursor + Codex + OpenCode)
+ */
+export const ALL_MODELS: ModelOption[] = [
+  ...CLAUDE_MODELS,
+  ...CURSOR_MODELS,
+  ...CODEX_MODELS,
+  ...OPENCODE_MODELS,
+];
 
 export const THINKING_LEVELS: ThinkingLevel[] = ['none', 'low', 'medium', 'high', 'ultrathink'];
 
@@ -146,4 +166,5 @@ export const PROFILE_ICONS: Record<string, React.ComponentType<{ className?: str
   Anthropic: AnthropicIcon,
   Cursor: CursorIcon,
   Codex: OpenAIIcon,
+  OpenCode: OpenCodeIcon,
 };

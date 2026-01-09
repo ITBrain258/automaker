@@ -96,6 +96,9 @@ export {
   getCodexCliPaths,
   getCodexConfigDir,
   getCodexAuthPath,
+  getOpenCodeCliPaths,
+  getOpenCodeConfigDir,
+  getOpenCodeAuthPath,
   getShellPaths,
   getExtendedPath,
   // Node.js paths
@@ -126,6 +129,9 @@ export {
   findCodexCliPath,
   getCodexAuthIndicators,
   type CodexAuthIndicators,
+  findOpenCodeCliPath,
+  getOpenCodeAuthIndicators,
+  type OpenCodeAuthIndicators,
   // Electron userData operations
   setElectronUserDataPath,
   getElectronUserDataPath,

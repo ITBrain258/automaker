@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   User,
   Shield,
+  Cpu,
 } from 'lucide-react';
 import { AnthropicIcon, CursorIcon, OpenAIIcon } from '@/components/ui/provider-icon';
 import type { SettingsViewId } from '../hooks/use-settings-view';
@@ -41,6 +42,7 @@ export const GLOBAL_NAV_ITEMS: NavigationItem[] = [
       { id: 'claude-provider', label: 'Claude', icon: AnthropicIcon },
       { id: 'cursor-provider', label: 'Cursor', icon: CursorIcon },
       { id: 'codex-provider', label: 'Codex', icon: OpenAIIcon },
+      { id: 'opencode-provider', label: 'OpenCode', icon: Cpu },
     ],
   },
   { id: 'mcp-servers', label: 'MCP Servers', icon: Plug },

@@ -17,6 +17,7 @@ import { createCursorStatusHandler } from './routes/cursor-status.js';
 import { createCodexStatusHandler } from './routes/codex-status.js';
 import { createInstallCodexHandler } from './routes/install-codex.js';
 import { createAuthCodexHandler } from './routes/auth-codex.js';
+import { createOpencodeStatusHandler } from './routes/opencode-status.js';
 import {
   createGetCursorConfigHandler,
   createSetCursorDefaultModelHandler,
@@ -49,6 +50,9 @@ export function createSetupRoutes(): Router {
   router.get('/codex-status', createCodexStatusHandler());
   router.post('/install-codex', createInstallCodexHandler());
   router.post('/auth-codex', createAuthCodexHandler());
+
+  // OpenCode CLI routes
+  router.get('/opencode-status', createOpencodeStatusHandler());
   router.get('/cursor-config', createGetCursorConfigHandler());
   router.post('/cursor-config/default-model', createSetCursorDefaultModelHandler());
   router.post('/cursor-config/models', createSetCursorModelsHandler());

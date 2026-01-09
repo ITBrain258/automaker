@@ -4,6 +4,7 @@ export * from './thinking-level-selector';
 export * from './reasoning-effort-selector';
 export * from './profile-quick-select';
 export * from './profile-select';
+export * from './profile-typeahead';
 export * from './testing-tab-content';
 export * from './priority-selector';
 export * from './priority-select';

@@ -7,14 +7,15 @@
  */
 
 import type { ModelProvider } from './settings.js';
-import { CURSOR_MODEL_MAP, type CursorModelId } from './cursor-models.js';
+import { CURSOR_MODEL_MAP } from './cursor-models.js';
 import { CLAUDE_MODEL_MAP, CODEX_MODEL_MAP } from './model.js';
-import { CODEX_MODEL_CONFIG_MAP, type CodexModelId } from './codex-models.js';
+import { OPENCODE_MODEL_CONFIG_MAP } from './opencode-models.js';
 
 /** Provider prefix constants */
 export const PROVIDER_PREFIXES = {
   cursor: 'cursor-',
   codex: 'codex-',
+  opencode: 'opencode-',
 } as const;
 
 /**
@@ -87,13 +88,52 @@ export function isCodexModel(model: string | undefined | null): boolean {
 }
 
 /**
+ * Check if a model string represents an OpenCode model
+ *
+ * OpenCode models can be identified by:
+ * - Explicit 'opencode-' prefix (for routing in Automaker)
+ * - 'opencode/' prefix (OpenCode free tier models)
+ * - 'amazon-bedrock/' prefix (AWS Bedrock models via OpenCode)
+ * - Full model ID from OPENCODE_MODEL_CONFIG_MAP
+ *
+ * @param model - Model string to check (e.g., "opencode-sonnet", "opencode/big-pickle", "amazon-bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0")
+ * @returns true if the model is an OpenCode model
+ */
+export function isOpencodeModel(model: string | undefined | null): boolean {
+  if (!model || typeof model !== 'string') return false;
+
+  // Check for explicit opencode- prefix (Automaker routing prefix)
+  if (model.startsWith(PROVIDER_PREFIXES.opencode)) {
+    return true;
+  }
+
+  // Check if it's a known OpenCode model ID
+  if (model in OPENCODE_MODEL_CONFIG_MAP) {
+    return true;
+  }
+
+  // Check for OpenCode native model prefixes
+  // - opencode/ = OpenCode free tier models (e.g., opencode/big-pickle)
+  // - amazon-bedrock/ = AWS Bedrock models (e.g., amazon-bedrock/anthropic.claude-*)
+  if (model.startsWith('opencode/') || model.startsWith('amazon-bedrock/')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Get the provider for a model string
  *
  * @param model - Model string to check
  * @returns The provider type, defaults to 'claude' for unknown models
  */
 export function getModelProvider(model: string | undefined | null): ModelProvider {
-  // Check Codex first before Cursor, since Cursor also supports gpt models
+  // Check OpenCode first since it uses provider-prefixed formats that could conflict
+  if (isOpencodeModel(model)) {
+    return 'opencode';
+  }
+  // Check Codex before Cursor, since Cursor also supports gpt models
   // but bare gpt-* should route to Codex
   if (isCodexModel(model)) {
     return 'codex';
@@ -148,6 +188,10 @@ export function addProviderPrefix(model: string, provider: ModelProvider): strin
   } else if (provider === 'codex') {
     if (!model.startsWith(PROVIDER_PREFIXES.codex)) {
       return `${PROVIDER_PREFIXES.codex}${model}`;
+    }
+  } else if (provider === 'opencode') {
+    if (!model.startsWith(PROVIDER_PREFIXES.opencode)) {
+      return `${PROVIDER_PREFIXES.opencode}${model}`;
     }
   }
   // Claude models don't use prefixes

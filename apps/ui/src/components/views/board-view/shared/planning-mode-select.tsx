@@ -19,6 +19,8 @@ interface PlanningModeSelectProps {
   testIdPrefix?: string;
   className?: string;
   disabled?: boolean;
+  /** If true, only renders the dropdown without description or checkbox */
+  compact?: boolean;
 }
 
 const modes = [
@@ -81,47 +83,58 @@ export function PlanningModeSelect({
   testIdPrefix = 'planning-mode',
   className,
   disabled = false,
+  compact = false,
 }: PlanningModeSelectProps) {
   const selectedMode = modes.find((m) => m.value === mode);
 
   // Disable approval checkbox for skip/lite modes since they don't use planning
   const isApprovalDisabled = disabled || mode === 'skip' || mode === 'lite';
 
+  const selectDropdown = (
+    <Select
+      value={mode}
+      onValueChange={(value: string) => onModeChange(value as PlanningMode)}
+      disabled={disabled}
+    >
+      <SelectTrigger className="h-9" data-testid={`${testIdPrefix}-select-trigger`}>
+        <SelectValue>
+          {selectedMode && (
+            <div className="flex items-center gap-2">
+              <selectedMode.icon className={cn('h-4 w-4', selectedMode.color)} />
+              <span>{selectedMode.label}</span>
+            </div>
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {modes.map((m) => {
+          const Icon = m.icon;
+          return (
+            <SelectItem
+              key={m.value}
+              value={m.value}
+              data-testid={`${testIdPrefix}-option-${m.value}`}
+            >
+              <div className="flex items-center gap-2">
+                <Icon className={cn('h-3.5 w-3.5', m.color)} />
+                <span>{m.label}</span>
+              </div>
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
+  );
+
+  // Compact mode - just the dropdown
+  if (compact) {
+    return <div className={className}>{selectDropdown}</div>;
+  }
+
+  // Full mode with description and optional checkbox
   return (
     <div className={cn('space-y-2', className)}>
-      <Select
-        value={mode}
-        onValueChange={(value: string) => onModeChange(value as PlanningMode)}
-        disabled={disabled}
-      >
-        <SelectTrigger className="h-9" data-testid={`${testIdPrefix}-select-trigger`}>
-          <SelectValue>
-            {selectedMode && (
-              <div className="flex items-center gap-2">
-                <selectedMode.icon className={cn('h-4 w-4', selectedMode.color)} />
-                <span>{selectedMode.label}</span>
-              </div>
-            )}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {modes.map((m) => {
-            const Icon = m.icon;
-            return (
-              <SelectItem
-                key={m.value}
-                value={m.value}
-                data-testid={`${testIdPrefix}-option-${m.value}`}
-              >
-                <div className="flex items-center gap-2">
-                  <Icon className={cn('h-3.5 w-3.5', m.color)} />
-                  <span>{m.label}</span>
-                </div>
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
+      {selectDropdown}
       {selectedMode && <p className="text-xs text-muted-foreground">{selectedMode.description}</p>}
       {onRequireApprovalChange && (
         <div className="flex items-center gap-2 pt-1">
