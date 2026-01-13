@@ -159,9 +159,6 @@ export function PhaseModelSelector({
   const expandedCodexTriggerRef = useRef<HTMLDivElement>(null);
   const {
     enabledCursorModels,
-    enabledCodexModels,
-    enabledOpencodeModels,
-    enabledDynamicModelIds,
     favoriteModels,
     toggleFavoriteModel,
     codexModels,
@@ -263,14 +260,6 @@ export function PhaseModelSelector({
       badge: model.tier === 'premium' ? 'Premium' : model.tier === 'basic' ? 'Speed' : undefined,
     }));
   }, [codexModels]);
-
-  const availableCodexModels = useMemo(
-    () =>
-      transformedCodexModels.filter((model) =>
-        enabledCodexModels.includes(model.id as CodexModelId)
-      ),
-    [transformedCodexModels, enabledCodexModels]
-  );
 
   // Filter Cursor models to only show enabled ones
   const availableCursorModels = CURSOR_MODELS.filter((model) => {
@@ -377,20 +366,16 @@ export function PhaseModelSelector({
   // Combine static and dynamic OpenCode models
   const allOpencodeModels: ModelOption[] = useMemo(() => {
     // Start with static models
-    const staticModels = OPENCODE_MODELS.filter((model) =>
-      enabledOpencodeModels.includes(model.id)
-    );
+    const staticModels = [...OPENCODE_MODELS];
 
     // Add dynamic models (convert ModelDefinition to ModelOption)
-    const dynamicModelOptions: ModelOption[] = dynamicOpencodeModels
-      .filter((model) => enabledDynamicModelIds.includes(model.id))
-      .map((model) => ({
-        id: model.id,
-        label: model.name,
-        description: model.description,
-        badge: model.tier === 'premium' ? 'Premium' : model.tier === 'basic' ? 'Free' : undefined,
-        provider: 'opencode' as const,
-      }));
+    const dynamicModelOptions: ModelOption[] = dynamicOpencodeModels.map((model) => ({
+      id: model.id,
+      label: model.name,
+      description: model.description,
+      badge: model.tier === 'premium' ? 'Premium' : model.tier === 'basic' ? 'Free' : undefined,
+      provider: 'opencode' as const,
+    }));
 
     // Merge, avoiding duplicates (static models take precedence for same ID)
     // In practice, static and dynamic IDs don't overlap
@@ -398,14 +383,14 @@ export function PhaseModelSelector({
     const uniqueDynamic = dynamicModelOptions.filter((m) => !staticIds.has(m.id));
 
     return [...staticModels, ...uniqueDynamic];
-  }, [dynamicOpencodeModels, enabledOpencodeModels, enabledDynamicModelIds]);
+  }, [dynamicOpencodeModels]);
 
   // Group models
   const { favorites, claude, cursor, codex, opencode } = useMemo(() => {
     const favs: typeof CLAUDE_MODELS = [];
     const cModels: typeof CLAUDE_MODELS = [];
     const curModels: typeof CURSOR_MODELS = [];
-    const codModels: typeof availableCodexModels = [];
+    const codModels: typeof transformedCodexModels = [];
     const ocModels: ModelOption[] = [];
 
     // Process Claude Models
@@ -427,7 +412,7 @@ export function PhaseModelSelector({
     });
 
     // Process Codex Models
-    availableCodexModels.forEach((model) => {
+    transformedCodexModels.forEach((model) => {
       if (favoriteModels.includes(model.id)) {
         favs.push(model);
       } else {
@@ -451,7 +436,7 @@ export function PhaseModelSelector({
       codex: codModels,
       opencode: ocModels,
     };
-  }, [favoriteModels, availableCursorModels, availableCodexModels, allOpencodeModels]);
+  }, [favoriteModels, availableCursorModels, transformedCodexModels, allOpencodeModels]);
 
   // Group OpenCode models by model type for better organization
   const opencodeSections = useMemo(() => {
@@ -468,11 +453,8 @@ export function PhaseModelSelector({
       free: {},
       dynamic: {},
     };
-    const enabledDynamicProviders = dynamicOpencodeModels.filter((model) =>
-      enabledDynamicModelIds.includes(model.id)
-    );
     const dynamicProviderById = new Map(
-      enabledDynamicProviders.map((model) => [model.id, model.provider])
+      dynamicOpencodeModels.map((model) => [model.id, model.provider])
     );
 
     const resolveProviderKey = (modelId: string): string => {
@@ -542,10 +524,10 @@ export function PhaseModelSelector({
     }).filter(Boolean) as OpencodeSection[];
 
     return builtSections;
-  }, [opencode, dynamicOpencodeModels, enabledDynamicModelIds]);
+  }, [opencode, dynamicOpencodeModels]);
 
   // Render Codex model item with secondary popover for reasoning effort (only for models that support it)
-  const renderCodexModelItem = (model: (typeof availableCodexModels)[0]) => {
+  const renderCodexModelItem = (model: (typeof transformedCodexModels)[0]) => {
     const isSelected = selectedModel === model.id;
     const isFavorite = favoriteModels.includes(model.id);
     const hasReasoning = codexModelHasThinking(model.id as CodexModelId);
@@ -726,7 +708,7 @@ export function PhaseModelSelector({
   };
 
   // Render OpenCode model item (simple selector, no thinking/reasoning options)
-  const renderOpencodeModelItem = (model: ModelOption) => {
+  const renderOpencodeModelItem = (model: (typeof OPENCODE_MODELS)[0]) => {
     const isSelected = selectedModel === model.id;
     const isFavorite = favoriteModels.includes(model.id);
 
@@ -1172,7 +1154,7 @@ export function PhaseModelSelector({
                     }
                     // Codex model
                     if (model.provider === 'codex') {
-                      return renderCodexModelItem(model as (typeof availableCodexModels)[0]);
+                      return renderCodexModelItem(model as (typeof transformedCodexModels)[0]);
                     }
                     // OpenCode model
                     if (model.provider === 'opencode') {
