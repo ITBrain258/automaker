@@ -39,6 +39,11 @@ import {
   logRecoveryWarning,
   DEFAULT_BACKUP_COUNT,
 } from '@automaker/utils';
+import {
+  captureError as captureErrorInMemory,
+  recordErrorWithSolution,
+  isInitialized as isMemoryLayerInitialized,
+} from '@automaker/memory-layer';
 
 const logger = createLogger('AutoMode');
 import { resolveModelString, resolvePhaseModel, DEFAULT_MODELS } from '@automaker/model-resolver';
@@ -1370,6 +1375,24 @@ export class AutoModeService {
           errorType: errorInfo.type,
           projectPath,
         });
+
+        // Record error in memory layer for future reference (non-blocking)
+        if (isMemoryLayerInitialized()) {
+          captureErrorInMemory({
+            message: errorInfo.message,
+            errorType: errorInfo.type,
+            severity: errorInfo.isQuotaExhausted || errorInfo.isAuth ? 'high' : 'medium',
+            projectName: projectPath,
+            tags: [
+              'auto-mode',
+              'feature-execution',
+              errorInfo.type,
+              ...(feature?.title ? [feature.title.toLowerCase().replace(/\s+/g, '-')] : []),
+            ],
+          }).catch((err) => {
+            logger.debug('Failed to record error in memory layer:', err);
+          });
+        }
 
         // Track this failure and check if we should pause auto mode
         // This handles both specific quota/rate limit errors AND generic failures
@@ -4676,6 +4699,33 @@ After generating the revised spec, output:
           },
           secureFs as Parameters<typeof appendLearning>[2]
         );
+
+        // Record 'gotcha' type learnings as error-solution pairs in memory layer
+        // These represent problems encountered and their solutions
+        if (learningType === 'gotcha' && isMemoryLayerInitialized()) {
+          const solutionContent =
+            (typeof learning.why === 'string' ? learning.why : '') ||
+            (typeof learning.context === 'string' ? learning.context : '');
+
+          if (solutionContent) {
+            recordErrorWithSolution(
+              {
+                message: learning.content.trim(),
+                errorType: 'gotcha',
+                severity: 'medium',
+                projectName: path.basename(projectPath),
+                tags: ['gotcha', learning.category, 'auto-mode', 'learning-extraction'],
+              },
+              {
+                content: solutionContent,
+                source: 'auto_mode',
+                projectName: path.basename(projectPath),
+              }
+            ).catch((err) => {
+              logger.debug('Failed to record gotcha in memory layer:', err);
+            });
+          }
+        }
       }
 
       const validLearnings = parsed.learnings.filter(
