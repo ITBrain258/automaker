@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { cn, modelSupportsThinking } from '@/lib/utils';
 import { Feature, ModelAlias, ThinkingLevel, useAppStore, PlanningMode } from '@/store/app-store';
 import type { ReasoningEffort, PhaseModelEntry, DescriptionHistoryEntry } from '@automaker/types';
+import { migrateModelId } from '@automaker/types';
 import {
   TestingTabContent,
   PrioritySelector,
@@ -107,9 +108,9 @@ export function EditFeatureDialog({
     feature?.requirePlanApproval ?? false
   );
 
-  // Model selection state
+  // Model selection state - migrate legacy model IDs to canonical format
   const [modelEntry, setModelEntry] = useState<PhaseModelEntry>(() => ({
-    model: (feature?.model as ModelAlias) || 'opus',
+    model: migrateModelId(feature?.model) || 'claude-opus',
     thinkingLevel: feature?.thinkingLevel || 'none',
     reasoningEffort: feature?.reasoningEffort || 'none',
   }));
@@ -157,9 +158,9 @@ export function EditFeatureDialog({
       setDescriptionChangeSource(null);
       setPreEnhancementDescription(null);
       setLocalHistory(feature.descriptionHistory ?? []);
-      // Reset model entry
+      // Reset model entry - migrate legacy model IDs
       setModelEntry({
-        model: (feature.model as ModelAlias) || 'opus',
+        model: migrateModelId(feature.model) || 'claude-opus',
         thinkingLevel: feature.thinkingLevel || 'none',
         reasoningEffort: feature.reasoningEffort || 'none',
       });

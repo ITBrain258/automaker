@@ -2,6 +2,7 @@ import { create } from 'zustand';
 // Note: persist middleware removed - settings now sync via API (use-settings-sync.ts)
 import type { Project, TrashedProject } from '@/lib/electron';
 import { getElectronAPI } from '@/lib/electron';
+import { getHttpApiClient } from '@/lib/http-api-client';
 import { createLogger } from '@automaker/utils/logger';
 import { setItem, getItem } from '@/lib/storage';
 import {
@@ -31,6 +32,8 @@ import type {
   ModelDefinition,
   ServerLogLevel,
   EventHook,
+  ClaudeApiProfile,
+  ClaudeCompatibleProvider,
 } from '@automaker/types';
 import {
   getAllCursorModelIds,
@@ -38,6 +41,7 @@ import {
   getAllOpencodeModelIds,
   DEFAULT_PHASE_MODELS,
   DEFAULT_OPENCODE_MODEL,
+  DEFAULT_MAX_CONCURRENCY,
 } from '@automaker/types';
 
 const logger = createLogger('AppStore');
@@ -500,7 +504,7 @@ export interface ProjectAnalysis {
 
 // Terminal panel layout types (recursive for splits)
 export type TerminalPanelContent =
-  | { type: 'terminal'; sessionId: string; size?: number; fontSize?: number }
+  | { type: 'terminal'; sessionId: string; size?: number; fontSize?: number; branchName?: string }
   | {
       type: 'split';
       id: string; // Stable ID for React key stability
@@ -531,12 +535,13 @@ export interface TerminalState {
   lineHeight: number; // Line height multiplier for terminal text
   maxSessions: number; // Maximum concurrent terminal sessions (server setting)
   lastActiveProjectPath: string | null; // Last project path to detect route changes vs project switches
+  openTerminalMode: 'newTab' | 'split'; // How to open terminals from "Open in Terminal" action
 }
 
 // Persisted terminal layout - now includes sessionIds for reconnection
 // Used to restore terminal layout structure when switching projects
 export type PersistedTerminalPanel =
-  | { type: 'terminal'; size?: number; fontSize?: number; sessionId?: string }
+  | { type: 'terminal'; size?: number; fontSize?: number; sessionId?: string; branchName?: string }
   | {
       type: 'split';
       id?: string; // Optional for backwards compatibility with older persisted layouts
@@ -574,6 +579,7 @@ export interface PersistedTerminalSettings {
   scrollbackLines: number;
   lineHeight: number;
   maxSessions: number;
+  openTerminalMode: 'newTab' | 'split';
 }
 
 /** State for worktree init script execution */
@@ -624,16 +630,18 @@ export interface AppState {
   currentChatSession: ChatSession | null;
   chatHistoryOpen: boolean;
 
-  // Auto Mode (per-project state, keyed by project ID)
-  autoModeByProject: Record<
+  // Auto Mode (per-worktree state, keyed by "${projectId}::${branchName ?? '__main__'}")
+  autoModeByWorktree: Record<
     string,
     {
       isRunning: boolean;
       runningTasks: string[]; // Feature IDs being worked on
+      branchName: string | null; // null = main worktree
+      maxConcurrency?: number; // Maximum concurrent features for this worktree (defaults to 3)
     }
   >;
   autoModeActivityLog: AutoModeActivity[];
-  maxConcurrency: number; // Maximum number of concurrent agent tasks
+  maxConcurrency: number; // Legacy: Maximum number of concurrent agent tasks (deprecated, use per-worktree maxConcurrency)
 
   // Kanban Card Display Settings
   boardViewMode: BoardViewMode; // Whether to show kanban or dependency graph view
@@ -728,6 +736,9 @@ export interface AppState {
   // Editor Configuration
   defaultEditorCommand: string | null; // Default editor for "Open In" action
 
+  // Terminal Configuration
+  defaultTerminalId: string | null; // Default external terminal for "Open In Terminal" action (null = integrated)
+
   // Skills Configuration
   enableSkills: boolean; // Enable Skills functionality (loads from .claude/skills/ directories)
   skillsSources: Array<'user' | 'project'>; // Which directories to load Skills from
@@ -741,6 +752,13 @@ export interface AppState {
 
   // Event Hooks
   eventHooks: EventHook[]; // Event hooks for custom commands or webhooks
+
+  // Claude-Compatible Providers (new system)
+  claudeCompatibleProviders: ClaudeCompatibleProvider[]; // Providers that expose models to dropdowns
+
+  // Claude API Profiles (deprecated - kept for backward compatibility)
+  claudeApiProfiles: ClaudeApiProfile[]; // Claude-compatible API endpoint profiles
+  activeClaudeApiProfileId: string | null; // Active profile ID (null = use direct Anthropic API)
 
   // Project Analysis
   projectAnalysis: ProjectAnalysis | null;
@@ -1025,6 +1043,18 @@ export interface AppActions {
   getEffectiveFontSans: () => string | null; // Get effective UI font (project override -> global -> null for default)
   getEffectiveFontMono: () => string | null; // Get effective code font (project override -> global -> null for default)
 
+  // Claude API Profile actions (per-project override)
+  /** @deprecated Use setProjectPhaseModelOverride instead */
+  setProjectClaudeApiProfile: (projectId: string, profileId: string | null | undefined) => void; // Set per-project Claude API profile (undefined = use global, null = direct API, string = specific profile)
+
+  // Project Phase Model Overrides
+  setProjectPhaseModelOverride: (
+    projectId: string,
+    phase: import('@automaker/types').PhaseModelKey,
+    entry: import('@automaker/types').PhaseModelEntry | null // null = use global
+  ) => void;
+  clearAllProjectPhaseModelOverrides: (projectId: string) => void;
+
   // Feature actions
   setFeatures: (features: Feature[]) => void;
   updateFeature: (id: string, updates: Partial<Feature>) => void;
@@ -1052,18 +1082,37 @@ export interface AppActions {
   setChatHistoryOpen: (open: boolean) => void;
   toggleChatHistory: () => void;
 
-  // Auto Mode actions (per-project)
-  setAutoModeRunning: (projectId: string, running: boolean) => void;
-  addRunningTask: (projectId: string, taskId: string) => void;
-  removeRunningTask: (projectId: string, taskId: string) => void;
-  clearRunningTasks: (projectId: string) => void;
-  getAutoModeState: (projectId: string) => {
+  // Auto Mode actions (per-worktree)
+  setAutoModeRunning: (
+    projectId: string,
+    branchName: string | null,
+    running: boolean,
+    maxConcurrency?: number,
+    runningTasks?: string[]
+  ) => void;
+  addRunningTask: (projectId: string, branchName: string | null, taskId: string) => void;
+  removeRunningTask: (projectId: string, branchName: string | null, taskId: string) => void;
+  clearRunningTasks: (projectId: string, branchName: string | null) => void;
+  getAutoModeState: (
+    projectId: string,
+    branchName: string | null
+  ) => {
     isRunning: boolean;
     runningTasks: string[];
+    branchName: string | null;
+    maxConcurrency?: number;
   };
+  /** Helper to generate worktree key from projectId and branchName */
+  getWorktreeKey: (projectId: string, branchName: string | null) => string;
   addAutoModeActivity: (activity: Omit<AutoModeActivity, 'id' | 'timestamp'>) => void;
   clearAutoModeActivity: () => void;
-  setMaxConcurrency: (max: number) => void;
+  setMaxConcurrency: (max: number) => void; // Legacy: kept for backward compatibility
+  getMaxConcurrencyForWorktree: (projectId: string, branchName: string | null) => number;
+  setMaxConcurrencyForWorktree: (
+    projectId: string,
+    branchName: string | null,
+    maxConcurrency: number
+  ) => void;
 
   // Kanban Card Settings actions
   setBoardViewMode: (mode: BoardViewMode) => void;
@@ -1166,11 +1215,31 @@ export interface AppActions {
   // Editor Configuration actions
   setDefaultEditorCommand: (command: string | null) => void;
 
+  // Terminal Configuration actions
+  setDefaultTerminalId: (terminalId: string | null) => void;
+
   // Prompt Customization actions
   setPromptCustomization: (customization: PromptCustomization) => Promise<void>;
 
   // Event Hook actions
   setEventHooks: (hooks: EventHook[]) => void;
+
+  // Claude-Compatible Provider actions (new system)
+  addClaudeCompatibleProvider: (provider: ClaudeCompatibleProvider) => Promise<void>;
+  updateClaudeCompatibleProvider: (
+    id: string,
+    updates: Partial<ClaudeCompatibleProvider>
+  ) => Promise<void>;
+  deleteClaudeCompatibleProvider: (id: string) => Promise<void>;
+  setClaudeCompatibleProviders: (providers: ClaudeCompatibleProvider[]) => Promise<void>;
+  toggleClaudeCompatibleProviderEnabled: (id: string) => Promise<void>;
+
+  // Claude API Profile actions (deprecated - kept for backward compatibility)
+  addClaudeApiProfile: (profile: ClaudeApiProfile) => Promise<void>;
+  updateClaudeApiProfile: (id: string, updates: Partial<ClaudeApiProfile>) => Promise<void>;
+  deleteClaudeApiProfile: (id: string) => Promise<void>;
+  setActiveClaudeApiProfile: (id: string | null) => Promise<void>;
+  setClaudeApiProfiles: (profiles: ClaudeApiProfile[]) => Promise<void>;
 
   // MCP Server actions
   addMCPServer: (server: Omit<MCPServerConfig, 'id'>) => void;
@@ -1215,7 +1284,8 @@ export interface AppActions {
   addTerminalToLayout: (
     sessionId: string,
     direction?: 'horizontal' | 'vertical',
-    targetSessionId?: string
+    targetSessionId?: string,
+    branchName?: string
   ) => void;
   removeTerminalFromLayout: (sessionId: string) => void;
   swapTerminals: (sessionId1: string, sessionId2: string) => void;
@@ -1229,6 +1299,7 @@ export interface AppActions {
   setTerminalLineHeight: (lineHeight: number) => void;
   setTerminalMaxSessions: (maxSessions: number) => void;
   setTerminalLastActiveProjectPath: (projectPath: string | null) => void;
+  setOpenTerminalMode: (mode: 'newTab' | 'split') => void;
   addTerminalTab: (name?: string) => string;
   removeTerminalTab: (tabId: string) => void;
   setActiveTerminalTab: (tabId: string) => void;
@@ -1238,7 +1309,8 @@ export interface AppActions {
   addTerminalToTab: (
     sessionId: string,
     tabId: string,
-    direction?: 'horizontal' | 'vertical'
+    direction?: 'horizontal' | 'vertical',
+    branchName?: string
   ) => void;
   setTerminalTabLayout: (
     tabId: string,
@@ -1376,9 +1448,9 @@ const initialState: AppState = {
   chatSessions: [],
   currentChatSession: null,
   chatHistoryOpen: false,
-  autoModeByProject: {},
+  autoModeByWorktree: {},
   autoModeActivityLog: [],
-  maxConcurrency: 3, // Default to 3 concurrent agents
+  maxConcurrency: DEFAULT_MAX_CONCURRENCY, // Default concurrent agents
   boardViewMode: 'kanban', // Default to kanban view
   defaultSkipTests: true, // Default to manual verification (tests disabled)
   enableDependencyBlocking: true, // Default to enabled (show dependency blocking UI)
@@ -1393,12 +1465,12 @@ const initialState: AppState = {
   muteDoneSound: false, // Default to sound enabled (not muted)
   serverLogLevel: 'info', // Default to info level for server logs
   enableRequestLogging: true, // Default to enabled for HTTP request logging
-  enhancementModel: 'sonnet', // Default to sonnet for feature enhancement
-  validationModel: 'opus', // Default to opus for GitHub issue validation
+  enhancementModel: 'claude-sonnet', // Default to sonnet for feature enhancement
+  validationModel: 'claude-opus', // Default to opus for GitHub issue validation
   phaseModels: DEFAULT_PHASE_MODELS, // Phase-specific model configuration
   favoriteModels: [],
   enabledCursorModels: getAllCursorModelIds(), // All Cursor models enabled by default
-  cursorDefaultModel: 'auto', // Default to auto selection
+  cursorDefaultModel: 'cursor-auto', // Default to auto selection
   enabledCodexModels: getAllCodexModelIds(), // All Codex models enabled by default
   codexDefaultModel: 'codex-gpt-5.2-codex', // Default to GPT-5.2-Codex
   codexAutoLoadAgents: false, // Default to disabled (user must opt-in)
@@ -1420,12 +1492,16 @@ const initialState: AppState = {
   skipSandboxWarning: false, // Default to disabled (show sandbox warning dialog)
   mcpServers: [], // No MCP servers configured by default
   defaultEditorCommand: null, // Auto-detect: Cursor > VS Code > first available
+  defaultTerminalId: null, // Integrated terminal by default
   enableSkills: true, // Skills enabled by default
   skillsSources: ['user', 'project'] as Array<'user' | 'project'>, // Load from both sources by default
   enableSubagents: true, // Subagents enabled by default
   subagentsSources: ['user', 'project'] as Array<'user' | 'project'>, // Load from both sources by default
   promptCustomization: {}, // Empty by default - all prompts use built-in defaults
   eventHooks: [], // No event hooks configured by default
+  claudeCompatibleProviders: [], // Claude-compatible providers that expose models
+  claudeApiProfiles: [], // No Claude API profiles configured by default (deprecated)
+  activeClaudeApiProfileId: null, // Use direct Anthropic API by default (deprecated)
   projectAnalysis: null,
   isAnalyzing: false,
   boardBackgroundByProject: {},
@@ -1445,6 +1521,7 @@ const initialState: AppState = {
     lineHeight: 1.0,
     maxSessions: 100,
     lastActiveProjectPath: null,
+    openTerminalMode: 'newTab',
   },
   terminalLayoutByProject: {},
   specCreatingForProject: null,
@@ -1504,7 +1581,16 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   moveProjectToTrash: (projectId) => {
     const project = get().projects.find((p) => p.id === projectId);
-    if (!project) return;
+    if (!project) {
+      console.warn('[MOVE_TO_TRASH] Project not found:', projectId);
+      return;
+    }
+
+    console.log('[MOVE_TO_TRASH] Moving project to trash:', {
+      projectId,
+      projectName: project.name,
+      currentProjectCount: get().projects.length,
+    });
 
     const remainingProjects = get().projects.filter((p) => p.id !== projectId);
     const existingTrash = get().trashedProjects.filter((p) => p.id !== projectId);
@@ -1516,6 +1602,11 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
     const isCurrent = get().currentProject?.id === projectId;
     const nextCurrentProject = isCurrent ? null : get().currentProject;
+
+    console.log('[MOVE_TO_TRASH] Updating store with new state:', {
+      newProjectCount: remainingProjects.length,
+      newTrashedCount: [trashedProject, ...existingTrash].length,
+    });
 
     set({
       projects: remainingProjects,
@@ -1613,16 +1704,18 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
       const updatedProjects = projects.map((p) => (p.id === existingProject.id ? project : p));
       set({ projects: updatedProjects });
     } else {
-      // Create new project - check for trashed project with same path first (preserves theme if deleted/recreated)
-      // Then fall back to provided theme, then current project theme, then global theme
+      // Create new project - only set theme if explicitly provided or recovering from trash
+      // Otherwise leave undefined so project uses global theme ("Use Global Theme" checked)
       const trashedProject = trashedProjects.find((p) => p.path === path);
-      const effectiveTheme = theme || trashedProject?.theme || currentProject?.theme || globalTheme;
+      const projectTheme =
+        theme !== undefined ? theme : (trashedProject?.theme as ThemeMode | undefined);
+
       project = {
         id: `project-${Date.now()}`,
         name,
         path,
         lastOpened: new Date().toISOString(),
-        theme: effectiveTheme,
+        theme: projectTheme, // May be undefined - intentional!
       };
       // Add the new project to the store
       set({
@@ -1907,6 +2000,139 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     return getEffectiveFont(currentProject?.fontFamilyMono, fontFamilyMono, UI_MONO_FONT_OPTIONS);
   },
 
+  // Claude API Profile actions (per-project override)
+  setProjectClaudeApiProfile: (projectId, profileId) => {
+    // Find the project to get its path for server sync
+    const project = get().projects.find((p) => p.id === projectId);
+    if (!project) {
+      console.error('Cannot set Claude API profile: project not found');
+      return;
+    }
+
+    // Update the project's activeClaudeApiProfileId property
+    // undefined means "use global", null means "explicit direct API", string means specific profile
+    const projects = get().projects.map((p) =>
+      p.id === projectId ? { ...p, activeClaudeApiProfileId: profileId } : p
+    );
+    set({ projects });
+
+    // Also update currentProject if it's the same project
+    const currentProject = get().currentProject;
+    if (currentProject?.id === projectId) {
+      set({
+        currentProject: {
+          ...currentProject,
+          activeClaudeApiProfileId: profileId,
+        },
+      });
+    }
+
+    // Persist to server
+    // Note: undefined means "use global" but JSON doesn't serialize undefined,
+    // so we use a special marker string "__USE_GLOBAL__" to signal deletion
+    const httpClient = getHttpApiClient();
+    const serverValue = profileId === undefined ? '__USE_GLOBAL__' : profileId;
+    httpClient.settings
+      .updateProject(project.path, {
+        activeClaudeApiProfileId: serverValue,
+      })
+      .catch((error) => {
+        console.error('Failed to persist activeClaudeApiProfileId:', error);
+      });
+  },
+
+  // Project Phase Model Override actions
+  setProjectPhaseModelOverride: (projectId, phase, entry) => {
+    // Find the project to get its path for server sync
+    const project = get().projects.find((p) => p.id === projectId);
+    if (!project) {
+      console.error('Cannot set phase model override: project not found');
+      return;
+    }
+
+    // Get current overrides or start fresh
+    const currentOverrides = project.phaseModelOverrides || {};
+
+    // Build new overrides
+    let newOverrides: typeof currentOverrides;
+    if (entry === null) {
+      // Remove the override (use global)
+      const { [phase]: _, ...rest } = currentOverrides;
+      newOverrides = rest;
+    } else {
+      // Set the override
+      newOverrides = { ...currentOverrides, [phase]: entry };
+    }
+
+    // Update the project's phaseModelOverrides
+    const projects = get().projects.map((p) =>
+      p.id === projectId
+        ? {
+            ...p,
+            phaseModelOverrides: Object.keys(newOverrides).length > 0 ? newOverrides : undefined,
+          }
+        : p
+    );
+    set({ projects });
+
+    // Also update currentProject if it's the same project
+    const currentProject = get().currentProject;
+    if (currentProject?.id === projectId) {
+      set({
+        currentProject: {
+          ...currentProject,
+          phaseModelOverrides: Object.keys(newOverrides).length > 0 ? newOverrides : undefined,
+        },
+      });
+    }
+
+    // Persist to server
+    const httpClient = getHttpApiClient();
+    httpClient.settings
+      .updateProject(project.path, {
+        phaseModelOverrides: Object.keys(newOverrides).length > 0 ? newOverrides : '__CLEAR__',
+      })
+      .catch((error) => {
+        console.error('Failed to persist phaseModelOverrides:', error);
+      });
+  },
+
+  clearAllProjectPhaseModelOverrides: (projectId) => {
+    // Find the project to get its path for server sync
+    const project = get().projects.find((p) => p.id === projectId);
+    if (!project) {
+      console.error('Cannot clear phase model overrides: project not found');
+      return;
+    }
+
+    // Clear overrides from project
+    const projects = get().projects.map((p) =>
+      p.id === projectId ? { ...p, phaseModelOverrides: undefined } : p
+    );
+    set({ projects });
+
+    // Also update currentProject if it's the same project
+    const currentProject = get().currentProject;
+    if (currentProject?.id === projectId) {
+      set({
+        currentProject: {
+          ...currentProject,
+          phaseModelOverrides: undefined,
+        },
+      });
+    }
+
+    // Persist to server
+    const httpClient = getHttpApiClient();
+    httpClient.settings
+      .updateProject(project.path, {
+        phaseModelOverrides: '__CLEAR__',
+      })
+      .catch((error) => {
+        console.error('Failed to clear phaseModelOverrides:', error);
+      });
+  },
+
   // Feature actions
   setFeatures: (features) => set({ features }),
 
@@ -2044,74 +2270,135 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   toggleChatHistory: () => set({ chatHistoryOpen: !get().chatHistoryOpen }),
 
-  // Auto Mode actions (per-project)
-  setAutoModeRunning: (projectId, running) => {
-    const current = get().autoModeByProject;
-    const projectState = current[projectId] || {
+  // Auto Mode actions (per-worktree)
+  getWorktreeKey: (projectId, branchName) => {
+    // Normalize 'main' to null so it matches the main worktree key
+    // The backend sometimes sends 'main' while the UI uses null for the main worktree
+    const normalizedBranch = branchName === 'main' ? null : branchName;
+    return `${projectId}::${normalizedBranch ?? '__main__'}`;
+  },
+
+  setAutoModeRunning: (
+    projectId: string,
+    branchName: string | null,
+    running: boolean,
+    maxConcurrency?: number,
+    runningTasks?: string[]
+  ) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const current = get().autoModeByWorktree;
+    const worktreeState = current[worktreeKey] || {
       isRunning: false,
       runningTasks: [],
+      branchName,
+      maxConcurrency: maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
     };
     set({
-      autoModeByProject: {
+      autoModeByWorktree: {
         ...current,
-        [projectId]: { ...projectState, isRunning: running },
+        [worktreeKey]: {
+          ...worktreeState,
+          isRunning: running,
+          branchName,
+          maxConcurrency: maxConcurrency ?? worktreeState.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY,
+          runningTasks: runningTasks ?? worktreeState.runningTasks,
+        },
       },
     });
   },
 
-  addRunningTask: (projectId, taskId) => {
-    const current = get().autoModeByProject;
-    const projectState = current[projectId] || {
+  addRunningTask: (projectId, branchName, taskId) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const current = get().autoModeByWorktree;
+    const worktreeState = current[worktreeKey] || {
       isRunning: false,
       runningTasks: [],
+      branchName,
     };
-    if (!projectState.runningTasks.includes(taskId)) {
+    if (!worktreeState.runningTasks.includes(taskId)) {
       set({
-        autoModeByProject: {
+        autoModeByWorktree: {
           ...current,
-          [projectId]: {
-            ...projectState,
-            runningTasks: [...projectState.runningTasks, taskId],
+          [worktreeKey]: {
+            ...worktreeState,
+            runningTasks: [...worktreeState.runningTasks, taskId],
+            branchName,
           },
         },
       });
     }
   },
 
-  removeRunningTask: (projectId, taskId) => {
-    const current = get().autoModeByProject;
-    const projectState = current[projectId] || {
+  removeRunningTask: (projectId, branchName, taskId) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const current = get().autoModeByWorktree;
+    const worktreeState = current[worktreeKey] || {
       isRunning: false,
       runningTasks: [],
+      branchName,
     };
     set({
-      autoModeByProject: {
+      autoModeByWorktree: {
         ...current,
-        [projectId]: {
-          ...projectState,
-          runningTasks: projectState.runningTasks.filter((id) => id !== taskId),
+        [worktreeKey]: {
+          ...worktreeState,
+          runningTasks: worktreeState.runningTasks.filter((id) => id !== taskId),
+          branchName,
         },
       },
     });
   },
 
-  clearRunningTasks: (projectId) => {
-    const current = get().autoModeByProject;
-    const projectState = current[projectId] || {
+  clearRunningTasks: (projectId, branchName) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const current = get().autoModeByWorktree;
+    const worktreeState = current[worktreeKey] || {
       isRunning: false,
       runningTasks: [],
+      branchName,
     };
     set({
-      autoModeByProject: {
+      autoModeByWorktree: {
         ...current,
-        [projectId]: { ...projectState, runningTasks: [] },
+        [worktreeKey]: { ...worktreeState, runningTasks: [], branchName },
       },
     });
   },
 
-  getAutoModeState: (projectId) => {
-    const projectState = get().autoModeByProject[projectId];
-    return projectState || { isRunning: false, runningTasks: [] };
+  getAutoModeState: (projectId, branchName) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const worktreeState = get().autoModeByWorktree[worktreeKey];
+    return (
+      worktreeState || {
+        isRunning: false,
+        runningTasks: [],
+        branchName,
+        maxConcurrency: DEFAULT_MAX_CONCURRENCY,
+      }
+    );
+  },
+
+  getMaxConcurrencyForWorktree: (projectId, branchName) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const worktreeState = get().autoModeByWorktree[worktreeKey];
+    return worktreeState?.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
+  },
+
+  setMaxConcurrencyForWorktree: (projectId, branchName, maxConcurrency) => {
+    const worktreeKey = get().getWorktreeKey(projectId, branchName);
+    const current = get().autoModeByWorktree;
+    const worktreeState = current[worktreeKey] || {
+      isRunning: false,
+      runningTasks: [],
+      branchName,
+      maxConcurrency: DEFAULT_MAX_CONCURRENCY,
+    };
+    set({
+      autoModeByWorktree: {
+        ...current,
+        [worktreeKey]: { ...worktreeState, maxConcurrency, branchName },
+      },
+    });
   },
 
   addAutoModeActivity: (activity) => {
@@ -2417,6 +2704,8 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   // Editor Configuration actions
   setDefaultEditorCommand: (command) => set({ defaultEditorCommand: command }),
+  // Terminal Configuration actions
+  setDefaultTerminalId: (terminalId) => set({ defaultTerminalId: terminalId }),
   // Prompt Customization actions
   setPromptCustomization: async (customization) => {
     set({ promptCustomization: customization });
@@ -2427,6 +2716,128 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
   // Event Hook actions
   setEventHooks: (hooks) => set({ eventHooks: hooks }),
+
+  // Claude-Compatible Provider actions (new system)
+  addClaudeCompatibleProvider: async (provider) => {
+    set({ claudeCompatibleProviders: [...get().claudeCompatibleProviders, provider] });
+    // Sync immediately to persist provider
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  updateClaudeCompatibleProvider: async (id, updates) => {
+    set({
+      claudeCompatibleProviders: get().claudeCompatibleProviders.map((p) =>
+        p.id === id ? { ...p, ...updates } : p
+      ),
+    });
+    // Sync immediately to persist changes
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  deleteClaudeCompatibleProvider: async (id) => {
+    set({
+      claudeCompatibleProviders: get().claudeCompatibleProviders.filter((p) => p.id !== id),
+    });
+    // Sync immediately to persist deletion
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  setClaudeCompatibleProviders: async (providers) => {
+    set({ claudeCompatibleProviders: providers });
+    // Sync immediately to persist providers
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  toggleClaudeCompatibleProviderEnabled: async (id) => {
+    set({
+      claudeCompatibleProviders: get().claudeCompatibleProviders.map((p) =>
+        p.id === id ? { ...p, enabled: p.enabled === false ? true : false } : p
+      ),
+    });
+    // Sync immediately to persist change
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  // Claude API Profile actions (deprecated - kept for backward compatibility)
+  addClaudeApiProfile: async (profile) => {
+    set({ claudeApiProfiles: [...get().claudeApiProfiles, profile] });
+    // Sync immediately to persist profile
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  updateClaudeApiProfile: async (id, updates) => {
+    set({
+      claudeApiProfiles: get().claudeApiProfiles.map((p) =>
+        p.id === id ? { ...p, ...updates } : p
+      ),
+    });
+    // Sync immediately to persist changes
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  deleteClaudeApiProfile: async (id) => {
+    const currentActiveId = get().activeClaudeApiProfileId;
+    const projects = get().projects;
+
+    // Find projects that have per-project override referencing the deleted profile
+    const affectedProjects = projects.filter((p) => p.activeClaudeApiProfileId === id);
+
+    // Update state: remove profile and clear references
+    set({
+      claudeApiProfiles: get().claudeApiProfiles.filter((p) => p.id !== id),
+      // Clear global active if the deleted profile was active
+      activeClaudeApiProfileId: currentActiveId === id ? null : currentActiveId,
+      // Clear per-project overrides that reference the deleted profile
+      projects: projects.map((p) =>
+        p.activeClaudeApiProfileId === id ? { ...p, activeClaudeApiProfileId: undefined } : p
+      ),
+    });
+
+    // Also update currentProject if it was using the deleted profile
+    const currentProject = get().currentProject;
+    if (currentProject?.activeClaudeApiProfileId === id) {
+      set({
+        currentProject: { ...currentProject, activeClaudeApiProfileId: undefined },
+      });
+    }
+
+    // Persist per-project changes to server (use __USE_GLOBAL__ marker)
+    const httpClient = getHttpApiClient();
+    await Promise.all(
+      affectedProjects.map((project) =>
+        httpClient.settings
+          .updateProject(project.path, { activeClaudeApiProfileId: '__USE_GLOBAL__' })
+          .catch((error) => {
+            console.error(`Failed to clear profile override for project ${project.name}:`, error);
+          })
+      )
+    );
+
+    // Sync global settings to persist deletion
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  setActiveClaudeApiProfile: async (id) => {
+    set({ activeClaudeApiProfileId: id });
+    // Sync immediately to persist active profile change
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
+
+  setClaudeApiProfiles: async (profiles) => {
+    set({ claudeApiProfiles: profiles });
+    // Sync immediately to persist profiles
+    const { syncSettingsToServer } = await import('@/hooks/use-settings-migration');
+    await syncSettingsToServer();
+  },
 
   // MCP Server actions
   addMCPServer: (server) => {
@@ -2656,12 +3067,13 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     });
   },
 
-  addTerminalToLayout: (sessionId, direction = 'horizontal', targetSessionId) => {
+  addTerminalToLayout: (sessionId, direction = 'horizontal', targetSessionId, branchName) => {
     const current = get().terminalState;
     const newTerminal: TerminalPanelContent = {
       type: 'terminal',
       sessionId,
       size: 50,
+      branchName,
     };
 
     // If no tabs, create first tab
@@ -2674,7 +3086,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
             {
               id: newTabId,
               name: 'Terminal 1',
-              layout: { type: 'terminal', sessionId, size: 100 },
+              layout: { type: 'terminal', sessionId, size: 100, branchName },
             },
           ],
           activeTabId: newTabId,
@@ -2749,7 +3161,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
 
     let newLayout: TerminalPanelContent;
     if (!activeTab.layout) {
-      newLayout = { type: 'terminal', sessionId, size: 100 };
+      newLayout = { type: 'terminal', sessionId, size: 100, branchName };
     } else if (targetSessionId) {
       newLayout = splitTargetTerminal(activeTab.layout, targetSessionId, direction);
     } else {
@@ -2879,6 +3291,8 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
         maxSessions: current.maxSessions,
         // Preserve lastActiveProjectPath - it will be updated separately when needed
         lastActiveProjectPath: current.lastActiveProjectPath,
+        // Preserve openTerminalMode - user preference
+        openTerminalMode: current.openTerminalMode,
       },
     });
   },
@@ -2967,6 +3381,13 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     const current = get().terminalState;
     set({
       terminalState: { ...current, lastActiveProjectPath: projectPath },
+    });
+  },
+
+  setOpenTerminalMode: (mode) => {
+    const current = get().terminalState;
+    set({
+      terminalState: { ...current, openTerminalMode: mode },
     });
   },
 
@@ -3212,7 +3633,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
     });
   },
 
-  addTerminalToTab: (sessionId, tabId, direction = 'horizontal') => {
+  addTerminalToTab: (sessionId, tabId, direction = 'horizontal', branchName) => {
     const current = get().terminalState;
     const tab = current.tabs.find((t) => t.id === tabId);
     if (!tab) return;
@@ -3221,11 +3642,12 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
       type: 'terminal',
       sessionId,
       size: 50,
+      branchName,
     };
     let newLayout: TerminalPanelContent;
 
     if (!tab.layout) {
-      newLayout = { type: 'terminal', sessionId, size: 100 };
+      newLayout = { type: 'terminal', sessionId, size: 100, branchName };
     } else if (tab.layout.type === 'terminal') {
       newLayout = {
         type: 'split',
@@ -3357,6 +3779,7 @@ export const useAppStore = create<AppState & AppActions>()((set, get) => ({
           size: panel.size,
           fontSize: panel.fontSize,
           sessionId: panel.sessionId, // Preserve for reconnection
+          branchName: panel.branchName, // Preserve branch name for display
         };
       }
       return {

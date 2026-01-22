@@ -14,7 +14,11 @@ import { streamingQuery } from '../../providers/simple-query-service.js';
 import { parseAndCreateFeatures } from './parse-and-create-features.js';
 import { getAppSpecPath } from '@automaker/platform';
 import type { SettingsService } from '../../services/settings-service.js';
-import { getAutoLoadClaudeMdSetting, getPromptCustomization } from '../../lib/settings-helpers.js';
+import {
+  getAutoLoadClaudeMdSetting,
+  getPromptCustomization,
+  getPhaseModelWithOverrides,
+} from '../../lib/settings-helpers.js';
 import { FeatureLoader } from '../../services/feature-loader.js';
 
 const logger = createLogger('SpecRegeneration');
@@ -115,13 +119,26 @@ Generate ${featureCount} NEW features that build on each other logically. Rememb
     '[FeatureGeneration]'
   );
 
-  // Get model from phase settings
-  const settings = await settingsService?.getGlobalSettings();
-  const phaseModelEntry =
-    settings?.phaseModels?.featureGenerationModel || DEFAULT_PHASE_MODELS.featureGenerationModel;
+  // Get model from phase settings with provider info
+  const {
+    phaseModel: phaseModelEntry,
+    provider,
+    credentials,
+  } = settingsService
+    ? await getPhaseModelWithOverrides(
+        'featureGenerationModel',
+        settingsService,
+        projectPath,
+        '[FeatureGeneration]'
+      )
+    : {
+        phaseModel: DEFAULT_PHASE_MODELS.featureGenerationModel,
+        provider: undefined,
+        credentials: undefined,
+      };
   const { model, thinkingLevel } = resolvePhaseModel(phaseModelEntry);
 
-  logger.info('Using model:', model);
+  logger.info('Using model:', model, provider ? `via provider: ${provider.name}` : 'direct API');
 
   // Use streamingQuery with event callbacks
   const result = await streamingQuery({
@@ -134,6 +151,8 @@ Generate ${featureCount} NEW features that build on each other logically. Rememb
     thinkingLevel,
     readOnly: true, // Feature generation only reads code, doesn't write
     settingSources: autoLoadClaudeMd ? ['user', 'project', 'local'] : undefined,
+    claudeCompatibleProvider: provider, // Pass provider for alternative endpoint configuration
+    credentials, // Pass credentials for resolving 'credentials' apiKeySource
     onText: (text) => {
       logger.debug(`Feature text block received (${text.length} chars)`);
       events.emit('spec-regeneration:event', {

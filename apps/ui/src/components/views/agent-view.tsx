@@ -3,6 +3,7 @@ import { useAppStore } from '@/store/app-store';
 import type { PhaseModelEntry } from '@automaker/types';
 import { useElectronAgent } from '@/hooks/use-electron-agent';
 import { SessionManager } from '@/components/session-manager';
+import { LogViewer } from '@/components/ui/log-viewer';
 
 // Extracted hooks
 import {
@@ -26,6 +27,8 @@ export function AgentView() {
   // Initialize session manager state - starts as true to match SSR
   // Then updates on mount based on actual screen size to prevent hydration mismatch
   const [showSessionManager, setShowSessionManager] = useState(true);
+  // Debug panel state for showing tool calls and thinking
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   // Update session manager visibility based on screen size after mount and on resize
   useEffect(() => {
@@ -42,7 +45,7 @@ export function AgentView() {
     return () => window.removeEventListener('resize', updateVisibility);
   }, []);
 
-  const [modelSelection, setModelSelection] = useState<PhaseModelEntry>({ model: 'sonnet' });
+  const [modelSelection, setModelSelection] = useState<PhaseModelEntry>({ model: 'claude-sonnet' });
 
   // Input ref for auto-focus
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -68,6 +71,8 @@ export function AgentView() {
     addToServerQueue,
     removeFromServerQueue,
     clearServerQueue,
+    debugOutput,
+    clearDebugOutput,
   } = useElectronAgent({
     sessionId: currentSessionId || '',
     workingDirectory: currentProject?.path,
@@ -202,6 +207,10 @@ export function AgentView() {
           showSessionManager={showSessionManager}
           onToggleSessionManager={() => setShowSessionManager(!showSessionManager)}
           onClearChat={handleClearChat}
+          showDebugPanel={showDebugPanel}
+          onToggleDebugPanel={() => setShowDebugPanel(!showDebugPanel)}
+          hasDebugOutput={debugOutput.length > 0}
+          onClearDebugOutput={clearDebugOutput}
         />
 
         {/* Messages */}
@@ -214,6 +223,15 @@ export function AgentView() {
           onScroll={handleScroll}
           onShowSessionManager={() => setShowSessionManager(true)}
         />
+
+        {/* Debug Panel - Shows tool calls, results, and thinking */}
+        {showDebugPanel && debugOutput && (
+          <div className="h-64 border-t border-border bg-card/50 overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-y-auto p-4 scrollbar-styled">
+              <LogViewer output={debugOutput} />
+            </div>
+          </div>
+        )}
 
         {/* Input Area */}
         {currentSessionId && (

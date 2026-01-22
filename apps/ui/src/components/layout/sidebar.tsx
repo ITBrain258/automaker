@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from '@tanstack/react-router';
 
 const logger = createLogger('Sidebar');
 import { cn } from '@/lib/utils';
-import { useAppStore, type ThemeMode } from '@/store/app-store';
+import { useAppStore } from '@/store/app-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useKeyboardShortcuts, useKeyboardShortcutsConfig } from '@/hooks/use-keyboard-shortcuts';
 import { getElectronAPI } from '@/lib/electron';
@@ -34,7 +34,6 @@ import {
   useProjectCreation,
   useSetupDialog,
   useTrashOperations,
-  useProjectTheme,
   useUnviewedValidations,
 } from './sidebar/hooks';
 
@@ -79,9 +78,6 @@ export function Sidebar() {
   // State for trash dialog
   const [showTrashDialog, setShowTrashDialog] = useState(false);
 
-  // Project theme management (must come before useProjectCreation which uses globalTheme)
-  const { globalTheme } = useProjectTheme();
-
   // Project creation state and handlers
   const {
     showNewProjectModal,
@@ -97,9 +93,6 @@ export function Sidebar() {
     handleCreateFromTemplate,
     handleCreateFromCustomUrl,
   } = useProjectCreation({
-    trashedProjects,
-    currentProject,
-    globalTheme,
     upsertAndSetCurrentProject,
   });
 
@@ -198,13 +191,8 @@ export function Sidebar() {
         }
 
         // Upsert project and set as current (handles both create and update cases)
-        // Theme preservation is handled by the store action
-        const trashedProject = trashedProjects.find((p) => p.path === path);
-        const effectiveTheme =
-          (trashedProject?.theme as ThemeMode | undefined) ||
-          (currentProject?.theme as ThemeMode | undefined) ||
-          globalTheme;
-        upsertAndSetCurrentProject(path, name, effectiveTheme);
+        // Theme handling (trashed project recovery or undefined for global) is done by the store
+        upsertAndSetCurrentProject(path, name);
 
         // Check if app_spec.txt exists
         const specExists = await hasAppSpec(path);
@@ -232,7 +220,7 @@ export function Sidebar() {
         });
       }
     }
-  }, [trashedProjects, upsertAndSetCurrentProject, currentProject, globalTheme]);
+  }, [upsertAndSetCurrentProject]);
 
   // Navigation sections and keyboard shortcuts (defined after handlers)
   const { navSections, navigationShortcuts } = useNavigation({

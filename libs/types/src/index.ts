@@ -77,12 +77,15 @@ export type { ImageData, ImageContentBlock } from './image.js';
 // Model types and constants
 export {
   CLAUDE_MODEL_MAP,
+  CLAUDE_CANONICAL_MAP,
+  LEGACY_CLAUDE_ALIAS_MAP,
   CODEX_MODEL_MAP,
   CODEX_MODEL_IDS,
   REASONING_CAPABLE_MODELS,
   supportsReasoningEffort,
   getAllCodexModelIds,
   DEFAULT_MODELS,
+  type ClaudeCanonicalId,
   type ModelAlias,
   type CodexModelId,
   type AgentModel,
@@ -158,6 +161,16 @@ export type {
   EventHookHttpAction,
   EventHookAction,
   EventHook,
+  // Claude-compatible provider types (new)
+  ApiKeySource,
+  ClaudeCompatibleProviderType,
+  ClaudeModelAlias,
+  ProviderModel,
+  ClaudeCompatibleProvider,
+  ClaudeCompatibleProviderTemplate,
+  // Claude API profile types (deprecated)
+  ClaudeApiProfile,
+  ClaudeApiProfileTemplate,
 } from './settings.js';
 export {
   DEFAULT_KEYBOARD_SHORTCUTS,
@@ -165,6 +178,7 @@ export {
   DEFAULT_GLOBAL_SETTINGS,
   DEFAULT_CREDENTIALS,
   DEFAULT_PROJECT_SETTINGS,
+  DEFAULT_MAX_CONCURRENCY,
   SETTINGS_VERSION,
   CREDENTIALS_VERSION,
   PROJECT_SETTINGS_VERSION,
@@ -172,6 +186,10 @@ export {
   getThinkingTokenBudget,
   // Event hook constants
   EVENT_HOOK_TRIGGER_LABELS,
+  // Claude-compatible provider templates (new)
+  CLAUDE_PROVIDER_TEMPLATES,
+  // Claude API profile constants (deprecated)
+  CLAUDE_API_PROFILE_TEMPLATES,
 } from './settings.js';
 
 // Model display constants
@@ -237,6 +255,18 @@ export {
   validateBareModelId,
 } from './provider-utils.js';
 
+// Model migration utilities
+export {
+  isLegacyCursorModelId,
+  isLegacyOpencodeModelId,
+  isLegacyClaudeAlias,
+  migrateModelId,
+  migrateCursorModelIds,
+  migrateOpencodeModelIds,
+  migratePhaseModelEntry,
+  getBareModelIdForCli,
+} from './model-migration.js';
+
 // Pipeline types
 export type {
   PipelineStep,
@@ -292,3 +322,10 @@ export type {
   EventReplayHookResult,
 } from './event-history.js';
 export { EVENT_HISTORY_VERSION, DEFAULT_EVENT_HISTORY_INDEX } from './event-history.js';
+
+// Worktree and PR types
+export type { PRState, WorktreePRInfo } from './worktree.js';
+export { PR_STATES, validatePRState } from './worktree.js';
+
+// Terminal types
+export type { TerminalInfo } from './terminal.js';

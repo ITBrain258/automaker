@@ -1,5 +1,7 @@
 import { createRootRoute, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState, useCallback, useDeferredValue, useRef } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { createLogger } from '@automaker/utils/logger';
 import { Sidebar } from '@/components/layout/sidebar';
 import { ProjectSwitcher } from '@/components/layout/project-switcher';
@@ -27,6 +29,7 @@ import {
   signalMigrationComplete,
   performSettingsMigration,
 } from '@/hooks/use-settings-migration';
+import { queryClient } from '@/lib/query-client';
 import { Toaster } from 'sonner';
 import { ThemeOption, themeOptions } from '@/config/theme-options';
 import { SandboxRiskDialog } from '@/components/dialogs/sandbox-risk-dialog';
@@ -37,6 +40,7 @@ import { useIsCompact } from '@/hooks/use-media-query';
 import type { Project } from '@/lib/electron';
 
 const logger = createLogger('RootLayout');
+const SHOW_QUERY_DEVTOOLS = import.meta.env.DEV;
 const SERVER_READY_MAX_ATTEMPTS = 8;
 const SERVER_READY_BACKOFF_BASE_MS = 250;
 const SERVER_READY_MAX_DELAY_MS = 1500;
@@ -891,10 +895,18 @@ function RootLayoutContent() {
 }
 
 function RootLayout() {
+  // Hide devtools on compact screens (mobile/tablet) to avoid overlap with sidebar settings
+  const isCompact = useIsCompact();
+
   return (
-    <FileBrowserProvider>
-      <RootLayoutContent />
-    </FileBrowserProvider>
+    <QueryClientProvider client={queryClient}>
+      <FileBrowserProvider>
+        <RootLayoutContent />
+      </FileBrowserProvider>
+      {SHOW_QUERY_DEVTOOLS && !isCompact ? (
+        <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
+      ) : null}
+    </QueryClientProvider>
   );
 }
 

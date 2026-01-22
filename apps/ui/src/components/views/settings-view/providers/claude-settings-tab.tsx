@@ -7,6 +7,7 @@ import { ClaudeMdSettings } from '../claude/claude-md-settings';
 import { ClaudeUsageSection } from '../api-keys/claude-usage-section';
 import { SkillsSection } from './claude-settings-tab/skills-section';
 import { SubagentsSection } from './claude-settings-tab/subagents-section';
+import { ApiProfilesSection } from './claude-settings-tab/api-profiles-section';
 import { ProviderToggle } from './provider-toggle';
 import { Info } from 'lucide-react';
 
@@ -45,6 +46,10 @@ export function ClaudeSettingsTab() {
         isChecking={isCheckingClaudeCli}
         onRefresh={handleRefreshClaudeCli}
       />
+
+      {/* Claude-compatible providers */}
+      <ApiProfilesSection />
+
       <ClaudeMdSettings
         autoLoadClaudeMd={autoLoadClaudeMd}
         onAutoLoadClaudeMdChange={setAutoLoadClaudeMd}

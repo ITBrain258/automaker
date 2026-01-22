@@ -13,7 +13,6 @@ import {
   CheckSquare,
   Trash2,
   ImageIcon,
-  Loader2,
   Settings,
   RotateCcw,
   Search,
@@ -22,8 +21,10 @@ import {
   Maximize2,
   Minimize2,
   ArrowDown,
+  GitBranch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
@@ -94,6 +95,7 @@ interface TerminalPanelProps {
   onCommandRan?: () => void; // Callback when the initial command has been sent
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
+  branchName?: string; // Branch name to display in header (from "Open in Terminal" action)
 }
 
 // Type for xterm Terminal - we'll use any since we're dynamically importing
@@ -124,6 +126,7 @@ export function TerminalPanel({
   onCommandRan,
   isMaximized = false,
   onToggleMaximize,
+  branchName,
 }: TerminalPanelProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1743,7 +1746,7 @@ export function TerminalPanel({
           <div className="flex flex-col items-center gap-2 px-4 py-3 bg-blue-500/90 rounded-md text-white">
             {isProcessingImage ? (
               <>
-                <Loader2 className="h-6 w-6 animate-spin" />
+                <Spinner size="lg" />
                 <span className="text-sm font-medium">Processing...</span>
               </>
             ) : (
@@ -1776,6 +1779,13 @@ export function TerminalPanel({
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           <Terminal className="h-3 w-3 shrink-0 text-muted-foreground" />
           <span className="text-xs truncate text-foreground">{shellName}</span>
+          {/* Branch name indicator - show when terminal was opened from worktree */}
+          {branchName && (
+            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-500 shrink-0">
+              <GitBranch className="h-2.5 w-2.5 shrink-0" />
+              <span>{branchName}</span>
+            </span>
+          )}
           {/* Font size indicator - only show when not default */}
           {fontSize !== DEFAULT_FONT_SIZE && (
             <button
@@ -1791,7 +1801,7 @@ export function TerminalPanel({
           )}
           {connectionStatus === 'reconnecting' && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-500 flex items-center gap-1">
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              <Spinner size="xs" />
               Reconnecting...
             </span>
           )}

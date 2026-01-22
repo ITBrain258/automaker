@@ -170,7 +170,7 @@ export function AddFeatureDialog({
   const [priority, setPriority] = useState(2);
 
   // Model selection state
-  const [modelEntry, setModelEntry] = useState<PhaseModelEntry>({ model: 'opus' });
+  const [modelEntry, setModelEntry] = useState<PhaseModelEntry>({ model: 'claude-opus' });
 
   // Check if current model supports planning mode (Claude/Anthropic only)
   const modelSupportsPlanningMode = isClaudeModel(modelEntry.model);

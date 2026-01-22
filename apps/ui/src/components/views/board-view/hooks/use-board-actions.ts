@@ -14,6 +14,7 @@ import { getElectronAPI } from '@/lib/electron';
 import { isConnectionError, handleServerOffline } from '@/lib/http-api-client';
 import { toast } from 'sonner';
 import { useAutoMode } from '@/hooks/use-auto-mode';
+import { useVerifyFeature, useResumeFeature } from '@/hooks/mutations';
 import { truncateDescription } from '@/lib/utils';
 import { getBlockingDependencies } from '@automaker/dependency-resolver';
 import { createLogger } from '@automaker/utils/logger';
@@ -91,8 +92,13 @@ export function useBoardActions({
     skipVerificationInAutoMode,
     isPrimaryWorktreeBranch,
     getPrimaryWorktreeBranch,
+    getAutoModeState,
   } = useAppStore();
   const autoMode = useAutoMode();
+
+  // React Query mutations for feature operations
+  const verifyFeatureMutation = useVerifyFeature(currentProject?.path ?? '');
+  const resumeFeatureMutation = useResumeFeature(currentProject?.path ?? '');
 
   // Worktrees are created when adding/editing features with a branch name
   // This ensures the worktree exists before the feature starts execution
@@ -118,14 +124,15 @@ export function useBoardActions({
       const workMode = featureData.workMode || 'current';
 
       // Determine final branch name based on work mode:
-      // - 'current': No branch name, work on current branch (no worktree)
+      // - 'current': Use current worktree's branch (or undefined if on main)
       // - 'auto': Auto-generate branch name based on current branch
       // - 'custom': Use the provided branch name
       let finalBranchName: string | undefined;
 
       if (workMode === 'current') {
-        // No worktree isolation - work directly on current branch
-        finalBranchName = undefined;
+        // Work directly on current branch - use the current worktree's branch if not on main
+        // This ensures features created on a non-main worktree are associated with that worktree
+        finalBranchName = currentWorktreeBranch || undefined;
       } else if (workMode === 'auto') {
         // Auto-generate a branch name based on primary branch (main/master) and timestamp
         // Always use primary branch to avoid nested feature/feature/... paths
@@ -212,7 +219,7 @@ export function useBoardActions({
         const api = getElectronAPI();
         if (api?.features?.generateTitle) {
           api.features
-            .generateTitle(featureData.description)
+            .generateTitle(featureData.description, projectPath ?? undefined)
             .then((result) => {
               if (result.success && result.title) {
                 const titleUpdates = {
@@ -245,10 +252,12 @@ export function useBoardActions({
       updateFeature,
       saveCategory,
       currentProject,
+      projectPath,
       onWorktreeCreated,
       onWorktreeAutoSelect,
       getPrimaryWorktreeBranch,
       features,
+      currentWorktreeBranch,
     ]
   );
 
@@ -282,7 +291,9 @@ export function useBoardActions({
       let finalBranchName: string | undefined;
 
       if (workMode === 'current') {
-        finalBranchName = undefined;
+        // Work directly on current branch - use the current worktree's branch if not on main
+        // This ensures features updated on a non-main worktree are associated with that worktree
+        finalBranchName = currentWorktreeBranch || undefined;
       } else if (workMode === 'auto') {
         // Auto-generate a branch name based on primary branch (main/master) and timestamp
         // Always use primary branch to avoid nested feature/feature/... paths
@@ -397,6 +408,7 @@ export function useBoardActions({
       onWorktreeCreated,
       getPrimaryWorktreeBranch,
       features,
+      currentWorktreeBranch,
     ]
   );
 
@@ -474,10 +486,30 @@ export function useBoardActions({
 
   const handleStartImplementation = useCallback(
     async (feature: Feature) => {
-      if (!autoMode.canStartNewTask) {
+      // Check capacity for the feature's specific worktree, not the current view
+      // Normalize the branch name: if the feature's branch is the primary worktree branch,
+      // treat it as null (main worktree) to match how running tasks are stored
+      const rawBranchName = feature.branchName ?? null;
+      const featureBranchName =
+        currentProject?.path &&
+        rawBranchName &&
+        isPrimaryWorktreeBranch(currentProject.path, rawBranchName)
+          ? null
+          : rawBranchName;
+      const featureWorktreeState = currentProject
+        ? getAutoModeState(currentProject.id, featureBranchName)
+        : null;
+      const featureMaxConcurrency = featureWorktreeState?.maxConcurrency ?? autoMode.maxConcurrency;
+      const featureRunningCount = featureWorktreeState?.runningTasks?.length ?? 0;
+      const canStartInWorktree = featureRunningCount < featureMaxConcurrency;
+
+      if (!canStartInWorktree) {
+        const worktreeDesc = featureBranchName
+          ? `worktree "${featureBranchName}"`
+          : 'main worktree';
         toast.error('Concurrency limit reached', {
-          description: `You can only have ${autoMode.maxConcurrency} task${
-            autoMode.maxConcurrency > 1 ? 's' : ''
+          description: `${worktreeDesc} can only have ${featureMaxConcurrency} task${
+            featureMaxConcurrency > 1 ? 's' : ''
           } running at a time. Wait for a task to complete or increase the limit.`,
         });
         return false;
@@ -541,34 +573,18 @@ export function useBoardActions({
       updateFeature,
       persistFeatureUpdate,
       handleRunFeature,
+      currentProject,
+      getAutoModeState,
+      isPrimaryWorktreeBranch,
     ]
   );
 
   const handleVerifyFeature = useCallback(
     async (feature: Feature) => {
       if (!currentProject) return;
-
-      try {
-        const api = getElectronAPI();
-        if (!api?.autoMode) {
-          logger.error('Auto mode API not available');
-          return;
-        }
-
-        const result = await api.autoMode.verifyFeature(currentProject.path, feature.id);
-
-        if (result.success) {
-          logger.info('Feature verification started successfully');
-        } else {
-          logger.error('Failed to verify feature:', result.error);
-          await loadFeatures();
-        }
-      } catch (error) {
-        logger.error('Error verifying feature:', error);
-        await loadFeatures();
-      }
+      verifyFeatureMutation.mutate(feature.id);
     },
-    [currentProject, loadFeatures]
+    [currentProject, verifyFeatureMutation]
   );
 
   const handleResumeFeature = useCallback(
@@ -578,40 +594,9 @@ export function useBoardActions({
         logger.error('No current project');
         return;
       }
-
-      try {
-        const api = getElectronAPI();
-        if (!api?.autoMode) {
-          logger.error('Auto mode API not available');
-          return;
-        }
-
-        logger.info('Calling resumeFeature API...', {
-          projectPath: currentProject.path,
-          featureId: feature.id,
-          useWorktrees,
-        });
-
-        const result = await api.autoMode.resumeFeature(
-          currentProject.path,
-          feature.id,
-          useWorktrees
-        );
-
-        logger.info('resumeFeature result:', result);
-
-        if (result.success) {
-          logger.info('Feature resume started successfully');
-        } else {
-          logger.error('Failed to resume feature:', result.error);
-          await loadFeatures();
-        }
-      } catch (error) {
-        logger.error('Error resuming feature:', error);
-        await loadFeatures();
-      }
+      resumeFeatureMutation.mutate({ featureId: feature.id, useWorktrees });
     },
-    [currentProject, loadFeatures, useWorktrees]
+    [currentProject, resumeFeatureMutation, useWorktrees]
   );
 
   const handleManualVerify = useCallback(

@@ -15,7 +15,10 @@ import { resolvePhaseModel } from '@automaker/model-resolver';
 import { streamingQuery } from '../../providers/simple-query-service.js';
 import { getAppSpecPath } from '@automaker/platform';
 import type { SettingsService } from '../../services/settings-service.js';
-import { getAutoLoadClaudeMdSetting } from '../../lib/settings-helpers.js';
+import {
+  getAutoLoadClaudeMdSetting,
+  getPhaseModelWithOverrides,
+} from '../../lib/settings-helpers.js';
 import { FeatureLoader } from '../../services/feature-loader.js';
 import {
   extractImplementedFeatures,
@@ -152,10 +155,26 @@ export async function syncSpec(
     '[SpecSync]'
   );
 
-  const settings = await settingsService?.getGlobalSettings();
-  const phaseModelEntry =
-    settings?.phaseModels?.specGenerationModel || DEFAULT_PHASE_MODELS.specGenerationModel;
+  // Get model from phase settings with provider info
+  const {
+    phaseModel: phaseModelEntry,
+    provider,
+    credentials,
+  } = settingsService
+    ? await getPhaseModelWithOverrides(
+        'specGenerationModel',
+        settingsService,
+        projectPath,
+        '[SpecSync]'
+      )
+    : {
+        phaseModel: DEFAULT_PHASE_MODELS.specGenerationModel,
+        provider: undefined,
+        credentials: undefined,
+      };
   const { model, thinkingLevel } = resolvePhaseModel(phaseModelEntry);
+
+  logger.info('Using model:', model, provider ? `via provider: ${provider.name}` : 'direct API');
 
   // Use AI to analyze tech stack
   const techAnalysisPrompt = `Analyze this project and return ONLY a JSON object with the current technology stack.
@@ -185,6 +204,8 @@ Return ONLY this JSON format, no other text:
       thinkingLevel,
       readOnly: true,
       settingSources: autoLoadClaudeMd ? ['user', 'project', 'local'] : undefined,
+      claudeCompatibleProvider: provider, // Pass provider for alternative endpoint configuration
+      credentials, // Pass credentials for resolving 'credentials' apiKeySource
       onText: (text) => {
         logger.debug(`Tech analysis text: ${text.substring(0, 100)}`);
       },
