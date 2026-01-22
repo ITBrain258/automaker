@@ -58,6 +58,9 @@ interface UseElectronAgentResult {
   ) => Promise<void>;
   removeFromServerQueue: (promptId: string) => Promise<void>;
   clearServerQueue: () => Promise<void>;
+  // Debug output for tool calls and thinking
+  debugOutput: string;
+  clearDebugOutput: () => void;
 }
 
 /**
@@ -78,6 +81,7 @@ export function useElectronAgent({
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverQueue, setServerQueue] = useState<QueuedPrompt[]>([]);
+  const [debugOutput, setDebugOutput] = useState<string>('');
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const currentMessageRef = useRef<Message | null>(null);
 
@@ -240,6 +244,11 @@ export function useElectronAgent({
     }
   }, [isProcessing, isProcessingQueue, queuedMessages.length, processNext]);
 
+  // Clear debug output when session changes
+  useEffect(() => {
+    setDebugOutput('');
+  }, [sessionId]);
+
   // Subscribe to streaming events
   useEffect(() => {
     const api = getElectronAPI();
@@ -307,6 +316,28 @@ export function useElectronAgent({
           // Tool being used
           logger.info('Tool use:', event.tool.name);
           onToolUse?.(event.tool.name, event.tool.input);
+          // Add to debug output
+          setDebugOutput((prev) => {
+            const inputStr = JSON.stringify(event.tool.input, null, 2);
+            return prev + `\n🔧 Tool: ${event.tool.name}\nInput: ${inputStr}\n`;
+          });
+          break;
+
+        case 'thinking':
+          // Thinking block from extended thinking
+          logger.info('Thinking block received');
+          setDebugOutput((prev) => {
+            return prev + `\n🧠 Thinking:\n${event.content}\n`;
+          });
+          break;
+
+        case 'tool_result':
+          // Tool result for debugging
+          logger.info('Tool result received for:', event.toolUseId);
+          setDebugOutput((prev) => {
+            const truncatedLabel = event.truncated ? ' [truncated]' : '';
+            return prev + `\n📤 Tool Result${truncatedLabel}:\n${event.result}\n`;
+          });
           break;
 
         case 'complete':
@@ -597,6 +628,11 @@ export function useElectronAgent({
     }
   }, [sessionId]);
 
+  // Clear debug output
+  const clearDebugOutput = useCallback(() => {
+    setDebugOutput('');
+  }, []);
+
   return {
     messages,
     isProcessing,
@@ -613,5 +649,8 @@ export function useElectronAgent({
     addToServerQueue,
     removeFromServerQueue,
     clearServerQueue,
+    // Debug output
+    debugOutput,
+    clearDebugOutput,
   };
 }

@@ -22,6 +22,7 @@ export interface Message {
 }
 
 export interface ToolUse {
+  id?: string; // For linking with tool_result events
   name: string;
   input: unknown;
 }
@@ -56,6 +57,19 @@ export type StreamEvent =
       sessionId: string;
       error: string;
       message?: Message;
+    }
+  | {
+      type: 'thinking';
+      sessionId: string;
+      thinkingId: string;
+      content: string;
+    }
+  | {
+      type: 'tool_result';
+      sessionId: string;
+      toolUseId: string;
+      result: string;
+      truncated: boolean;
     };
 
 export interface SessionListItem {

@@ -1,4 +1,4 @@
-import { Bot, PanelLeftClose, PanelLeft, Wrench, Trash2 } from 'lucide-react';
+import { Bot, PanelLeftClose, PanelLeft, Wrench, Trash2, Bug, Trash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface AgentHeaderProps {
@@ -11,6 +11,11 @@ interface AgentHeaderProps {
   showSessionManager: boolean;
   onToggleSessionManager: () => void;
   onClearChat: () => void;
+  // Debug panel props
+  showDebugPanel?: boolean;
+  onToggleDebugPanel?: () => void;
+  hasDebugOutput?: boolean;
+  onClearDebugOutput?: () => void;
 }
 
 export function AgentHeader({
@@ -23,6 +28,10 @@ export function AgentHeader({
   showSessionManager,
   onToggleSessionManager,
   onClearChat,
+  showDebugPanel,
+  onToggleDebugPanel,
+  hasDebugOutput,
+  onClearDebugOutput,
 }: AgentHeaderProps) {
   return (
     <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm">
@@ -58,6 +67,32 @@ export function AgentHeader({
             <Trash2 className="w-4 h-4 mr-2" />
             Clear
           </Button>
+        )}
+        {/* Debug panel toggle */}
+        {onToggleDebugPanel && (
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggleDebugPanel}
+              className={`text-muted-foreground hover:text-foreground ${showDebugPanel ? 'bg-muted' : ''}`}
+              aria-label={showDebugPanel ? 'Hide debug logs' : 'Show debug logs'}
+            >
+              <Bug className="w-4 h-4 mr-2" />
+              {showDebugPanel ? 'Hide Logs' : 'Show Logs'}
+            </Button>
+            {showDebugPanel && hasDebugOutput && onClearDebugOutput && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClearDebugOutput}
+                className="text-muted-foreground hover:text-foreground ml-1"
+                aria-label="Clear debug logs"
+              >
+                <Trash className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
         )}
         <Button
           variant="ghost"
