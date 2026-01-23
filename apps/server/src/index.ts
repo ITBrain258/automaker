@@ -83,6 +83,8 @@ import { createNotificationsRoutes } from './routes/notifications/index.js';
 import { getNotificationService } from './services/notification-service.js';
 import { createEventHistoryRoutes } from './routes/event-history/index.js';
 import { getEventHistoryService } from './services/event-history-service.js';
+import { createMemoryRoutes } from './routes/memory/index.js';
+import { initialize as initializeMemoryLayer } from '@automaker/memory-layer';
 
 // Load environment variables
 dotenv.config();
@@ -344,6 +346,7 @@ app.use('/api/pipeline', createPipelineRoutes(pipelineService));
 app.use('/api/ideation', createIdeationRoutes(events, ideationService, featureLoader));
 app.use('/api/notifications', createNotificationsRoutes(notificationService));
 app.use('/api/event-history', createEventHistoryRoutes(eventHistoryService, settingsService));
+app.use('/api/memory', createMemoryRoutes());
 
 // Create HTTP server
 const server = createServer(app);
@@ -739,7 +742,19 @@ const startServer = (port: number, host: string) => {
   });
 };
 
-startServer(PORT, HOST);
+// Initialize memory layer and start server
+(async () => {
+  try {
+    // Initialize the memory layer for cross-project error/solution storage
+    await initializeMemoryLayer();
+    logger.info('Memory layer initialized');
+  } catch (error) {
+    // Memory layer is non-critical, continue even if it fails
+    logger.warn('Failed to initialize memory layer:', error);
+  }
+
+  startServer(PORT, HOST);
+})();
 
 // Global error handlers to prevent crashes from uncaught errors
 process.on('unhandledRejection', (reason: unknown, _promise: Promise<unknown>) => {

@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from '@automaker/utils';
+import { captureError, isInitialized } from '@automaker/memory-layer';
 
 const logger = createLogger('ErrorHandler');
 
@@ -329,6 +330,54 @@ export function createErrorResponse(
 }
 
 /**
+ * Map ErrorSeverity to memory layer severity
+ */
+function mapSeverity(severity: ErrorSeverity): 'low' | 'medium' | 'high' | 'critical' {
+  switch (severity) {
+    case ErrorSeverity.LOW:
+      return 'low';
+    case ErrorSeverity.MEDIUM:
+      return 'medium';
+    case ErrorSeverity.HIGH:
+      return 'high';
+    case ErrorSeverity.CRITICAL:
+      return 'critical';
+    default:
+      return 'medium';
+  }
+}
+
+/**
+ * Record error in memory layer (non-blocking)
+ */
+async function recordErrorInMemory(
+  classification: ErrorClassification,
+  operation?: string
+): Promise<void> {
+  // Only record if memory layer is initialized
+  if (!isInitialized()) {
+    return;
+  }
+
+  try {
+    await captureError({
+      message: classification.technicalMessage,
+      errorType: classification.type,
+      severity: mapSeverity(classification.severity),
+      projectName: classification.provider,
+      tags: [
+        classification.type,
+        ...(classification.provider ? [classification.provider] : []),
+        ...(operation ? [operation] : []),
+      ],
+    });
+  } catch (err) {
+    // Silently fail - memory recording should never block main operations
+    logger.debug('Failed to record error in memory layer:', err);
+  }
+}
+
+/**
  * Log error with full context
  */
 export function logError(
@@ -350,6 +399,11 @@ export function logError(
     retryable: classification.retryable,
     suggestedAction: classification.suggestedAction,
     context: classification.context,
+  });
+
+  // Non-blocking: Record error in memory layer for future reference
+  recordErrorInMemory(classification, operation).catch(() => {
+    // Intentionally swallow errors - memory recording is non-critical
   });
 }
 
